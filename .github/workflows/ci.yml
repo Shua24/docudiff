@@ -13,6 +13,9 @@ jobs:
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # A hung step otherwise sits until the six-hour job limit. The apt step below hung for 25+
+    # minutes on two consecutive runs while holding the dpkg lock.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -33,13 +36,19 @@ jobs:
       # a failure fail the job.
       - name: Install LibreOffice (Linux)
         if: runner.os == 'Linux'
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          # unattended-upgrades holds the dpkg lock on a fresh runner and apt waits on it
+          # indefinitely instead of failing. Stop it, and cap the wait so a lock hang is an
+          # error in ten minutes rather than a silent six-hour stall.
+          sudo systemctl stop unattended-upgrades || true
+          sudo apt-get -o DPkg::Lock::Timeout=60 update
+          sudo apt-get -o DPkg::Lock::Timeout=60 install -y --no-install-recommends \
             libreoffice-writer libreoffice-calc xvfb
 
       - name: Install LibreOffice (Windows)
         if: runner.os == 'Windows'
+        timeout-minutes: 15
         run: choco install libreoffice-fresh -y --no-progress
 
       # JavaFX needs a display to start its toolkit. The UI tests build real controls, so on Linux
@@ -64,6 +73,7 @@ jobs:
     name: Package (${{ matrix.os }})
     needs: test
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:

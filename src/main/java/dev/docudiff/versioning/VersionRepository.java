@@ -56,7 +56,7 @@ public final class VersionRepository {
         if (!Files.exists(workingPath)) {
             return WorkingFileState.MISSING;
         }
-        try (Git git = Git.open(repositoryDirectory.toFile())) {
+        try (Git git = openGit()) {
             Repository repository = git.getRepository();
             RevCommit headCommit = RevisionReader.headCommit(repository);
             if (headCommit == null) {
@@ -74,7 +74,7 @@ public final class VersionRepository {
 
     public String snapshot(String documentName, String snapshotName)
             throws IOException, GitAPIException {
-        try (Git git = Git.open(repositoryDirectory.toFile())) {
+        try (Git git = openGit()) {
             git.add().addFilepattern(".").call();
             RevCommit commit = git.commit()
                     .setMessage(snapshotName)
@@ -86,7 +86,7 @@ public final class VersionRepository {
     }
 
     public List<VersionEntry> listVersions() throws IOException, GitAPIException {
-        try (Git git = Git.open(repositoryDirectory.toFile())) {
+        try (Git git = openGit()) {
             List<VersionEntry> versions = new ArrayList<>();
             // A freshly initialised repository has no HEAD; git.log() throws NoHeadException
             // rather than returning nothing, so an empty document would crash the version list.
@@ -110,7 +110,7 @@ public final class VersionRepository {
     }
 
     public List<String> listBranches() throws IOException, GitAPIException {
-        try (Git git = Git.open(repositoryDirectory.toFile())) {
+        try (Git git = openGit()) {
             List<String> branchNames = new ArrayList<>();
             for (Ref ref : git.branchList().call()) {
                 branchNames.add(Repository.shortenRefName(ref.getName()));
@@ -122,19 +122,19 @@ public final class VersionRepository {
 
     /** The branch currently checked out in this repository. */
     public String currentBranch() throws IOException {
-        try (Git git = Git.open(repositoryDirectory.toFile())) {
+        try (Git git = openGit()) {
             return git.getRepository().getBranch();
         }
     }
 
     public void createBranch(String branchName) throws IOException, GitAPIException {
-        try (Git git = Git.open(repositoryDirectory.toFile())) {
+        try (Git git = openGit()) {
             git.branchCreate().setName(branchName).call();
         }
     }
 
     public void checkoutBranch(String branchName) throws IOException, GitAPIException {
-        try (Git git = Git.open(repositoryDirectory.toFile())) {
+        try (Git git = openGit()) {
             String currentBranch = git.getRepository().getBranch();
             if (currentBranch.equals(branchName)) {
                 return;
@@ -155,7 +155,7 @@ public final class VersionRepository {
      * the diff engine use to look at an arbitrary version.
      */
     public byte[] bytesOfVersion(String fileName, String commitId) throws IOException {
-        try (Git git = Git.open(repositoryDirectory.toFile())) {
+        try (Git git = openGit()) {
             Repository repository = git.getRepository();
             try (RevWalk walk = new RevWalk(repository)) {
                 RevCommit commit = walk.parseCommit(ObjectId.fromString(commitId));
@@ -192,7 +192,7 @@ public final class VersionRepository {
      */
     public String mergeForkOnly(String targetBranch, String sourceBranch)
             throws IOException, GitAPIException {
-        try (Git git = Git.open(repositoryDirectory.toFile())) {
+        try (Git git = openGit()) {
             Repository repository = git.getRepository();
             ObjectId targetId = repository.resolve("refs/heads/" + targetBranch);
             ObjectId sourceId = repository.resolve("refs/heads/" + sourceBranch);
@@ -231,7 +231,7 @@ public final class VersionRepository {
     }
 
     public List<String> parentIdsOf(String commitId) throws IOException {
-        try (Git git = Git.open(repositoryDirectory.toFile());
+        try (Git git = openGit();
              RevWalk walk = new RevWalk(git.getRepository())) {
             RevCommit commit = walk.parseCommit(ObjectId.fromString(commitId));
             List<String> parentIds = new ArrayList<>();
@@ -243,11 +243,26 @@ public final class VersionRepository {
     }
 
     public String treeIdOf(String commitId) throws IOException {
-        try (Git git = Git.open(repositoryDirectory.toFile());
+        try (Git git = openGit();
              RevWalk walk = new RevWalk(git.getRepository())) {
             RevCommit commit = walk.parseCommit(ObjectId.fromString(commitId));
             return commit.getTree().getId().getName();
         }
+    }
+
+    /**
+     * Opens the repository with line-ending conversion pinned off.
+     *
+     * <p>JGit honours {@code core.autocrlf} from the system or global git config, and GitHub's
+     * Windows runners set it to {@code true}. A hard reset then rewrites the working file with
+     * CRLF, so the same document has different bytes on Windows than on Linux — and the user's
+     * Markdown silently changes line endings after every checkout or merge. A document manager
+     * must not rewrite the user's line endings, so the setting is forced off for every operation.
+     */
+    private Git openGit() throws IOException {
+        Git git = Git.open(repositoryDirectory.toFile());
+        git.getRepository().getConfig().setBoolean("core", null, "autocrlf", false);
+        return git;
     }
 
     private PersonIdent identity() {
