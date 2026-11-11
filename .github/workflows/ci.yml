@@ -13,14 +13,14 @@ jobs:
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # A hung step otherwise sits until the six-hour job limit. The apt step below hung for 25+
-    # minutes on two consecutive runs while holding the dpkg lock.
-    timeout-minutes: 30
+    # A hung step otherwise sits until the six-hour job limit. The apt step below needs ~12
+    # minutes on a good run because of runner-side DNS retries, so the job gets 40.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        # ubuntu-latest is 26.04 (resolute) and the Ubuntu archive mirror does not serve it, so
-        # apt hangs on every fetch. Pin the LTS that the mirror actually carries.
+        # Pin the LTS rather than ubuntu-latest: a predictable image is worth more than the
+        # newest one for a job that installs a 400 MB office suite.
         os: [ubuntu-24.04, windows-latest]
 
     steps:
@@ -38,12 +38,14 @@ jobs:
       # a failure fail the job.
       - name: Install LibreOffice (Linux)
         if: runner.os == 'Linux'
-        timeout-minutes: 10
+        timeout-minutes: 20
         run: |
-          # ubuntu-latest moved to 26.04 (resolute) and the Ubuntu archive mirror does not serve
-          # it: every fetch prints "Ign:" and times out, so the step hung for 25+ minutes on two
-          # consecutive runs. The matrix pins ubuntu-24.04 for that reason. The lock timeout and
-          # the step timeout stay as a backstop so a mirror problem fails in minutes, not hours.
+          # Measured on this runner: apt prints "Temporary failure resolving
+          # 'azure.archive.ubuntu.com'" and retries for ~6 minutes before the index finally
+          # downloads, while packages.microsoft.com resolves fine in the same run. That is
+          # runner-side DNS, not a lock and not the release. The update alone eats six minutes,
+          # so the step needs headroom for the install that follows; the timeout still bounds a
+          # genuine hang instead of letting it sit until the job limit.
           sudo systemctl stop unattended-upgrades || true
           sudo apt-get -o DPkg::Lock::Timeout=60 -o Acquire::Retries=3 update
           sudo apt-get -o DPkg::Lock::Timeout=60 install -y --no-install-recommends \
