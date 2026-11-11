@@ -1,0 +1,238 @@
+/*
+ * Docudiff — a read-only document diff viewer and version manager.
+ * Palette leans to the sea: cool blues, one warm accent for additions.
+ */
+
+.root {
+    -fx-font-family: "Liberation Sans", "Segoe UI", system-ui, sans-serif;
+    -fx-font-size: 13px;
+    -fx-background-color: #f7fafb;
+}
+
+.section-header {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #1b3a4b;
+    -fx-padding: 0 0 2px 0;
+}
+
+.muted {
+    -fx-text-fill: #6b7d87;
+    -fx-font-size: 11.5px;
+}
+
+.library-pane {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #dbe7ec;
+    -fx-border-width: 0 1 0 0;
+}
+
+.list-view {
+    -fx-background-color: transparent;
+    -fx-border-color: #e3edf1;
+    -fx-border-radius: 4px;
+}
+
+.list-cell {
+    -fx-padding: 7px 9px;
+    -fx-background-color: transparent;
+}
+
+.list-cell:filled:selected {
+    -fx-background-color: #dcecf2;
+    -fx-text-fill: #12303d;
+}
+
+.list-cell:filled:hover {
+    -fx-background-color: #eef5f8;
+}
+
+.tab-pane .tab {
+    -fx-background-color: #e8f1f5;
+}
+
+.tab-pane .tab:selected {
+    -fx-background-color: #ffffff;
+}
+
+.pdf-page {
+    -fx-background-color: #ffffff;
+    -fx-padding: 10px;
+    -fx-border-color: #e0e9ed;
+    -fx-border-radius: 3px;
+}
+
+.diff-block {
+    -fx-padding: 7px 10px;
+    -fx-background-radius: 4px;
+    -fx-border-radius: 4px;
+    -fx-border-width: 0 0 0 3px;
+}
+
+.diff-unchanged {
+    -fx-background-color: #fbfdfe;
+    -fx-border-color: #dfe9ee;
+}
+
+.diff-modified {
+    -fx-background-color: #fffaf0;
+    -fx-border-color: #e6b869;
+}
+
+.diff-added {
+    -fx-background-color: #f1faf3;
+    -fx-border-color: #74b98a;
+}
+
+.diff-removed {
+    -fx-background-color: #fdf3f3;
+    -fx-border-color: #cf8d8d;
+}
+
+.word-added {
+    -fx-fill: #1e6b3a;
+    -fx-font-weight: bold;
+}
+
+.word-removed {
+    -fx-fill: #8f2f2f;
+    -fx-strikethrough: true;
+}
+
+.word-equal {
+    -fx-fill: #24343d;
+}
+
+.badge {
+    -fx-padding: 1px 7px;
+    -fx-background-radius: 9px;
+    -fx-font-size: 10.5px;
+}
+
+.badge-clean {
+    -fx-background-color: #dcefe2;
+    -fx-text-fill: #1e6b3a;
+}
+
+.badge-modified {
+    -fx-background-color: #fdf0d8;
+    -fx-text-fill: #8a6117;
+}
+
+.badge-missing {
+    -fx-background-color: #f8dede;
+    -fx-text-fill: #8f2f2f;
+}
+
+.button {
+    -fx-background-color: #e3eef2;
+    -fx-text-fill: #12303d;
+    -fx-background-radius: 4px;
+    -fx-padding: 5px 12px;
+}
+
+.button:hover {
+    -fx-background-color: #d2e5ec;
+}
+
+/* ── Busy overlay ─────────────────────────────────────────────────────────── */
+
+.busy-overlay {
+    -fx-background-color: rgba(20, 40, 52, 0.34);
+}
+
+.busy-card {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 10px;
+    -fx-effect: dropshadow(gaussian, rgba(16, 40, 54, 0.28), 24, 0.15, 0, 6);
+}
+
+.busy-message {
+    -fx-text-fill: #1b3a4b;
+    -fx-font-size: 13.5px;
+}
+
+.busy-overlay .progress-indicator {
+    -fx-progress-color: #3f7f9b;
+}
+
+/* ── Diff legend strip ────────────────────────────────────────────────────── */
+
+.legend-strip {
+    -fx-background-color: #eef5f8;
+    -fx-border-color: #d9e7ed;
+    -fx-border-width: 1 0 0 0;
+}
+
+.legend-heading {
+    -fx-font-size: 11.5px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #1b3a4b;
+}
+
+.legend-note {
+    -fx-text-fill: #5b7078;
+    -fx-font-size: 11.5px;
+}
+
+.legend-swatch {
+    -fx-min-width: 13px;
+    -fx-min-height: 13px;
+    -fx-pref-width: 13px;
+    -fx-pref-height: 13px;
+    -fx-background-radius: 3px;
+    -fx-border-radius: 3px;
+    -fx-border-width: 1px;
+}
+
+/* Swatches reuse the diff colours, restated here because the card rules above only apply
+   inside a .diff-block container. */
+.legend-swatch.diff-modified {
+    -fx-background-color: #fffaf0;
+    -fx-border-color: #e6b869;
+}
+
+.legend-swatch.diff-added {
+    -fx-background-color: #f1faf3;
+    -fx-border-color: #74b98a;
+}
+
+.legend-swatch.diff-removed {
+    -fx-background-color: #fdf3f3;
+    -fx-border-color: #cf8d8d;
+}
+
+/* ── Help dialog ──────────────────────────────────────────────────────────── */
+
+.help-dialog {
+    -fx-background-color: #f7fafb;
+}
+
+.help-heading {
+    -fx-font-size: 12.5px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #1b3a4b;
+}
+
+.help-body {
+    -fx-text-fill: #33474f;
+    -fx-font-size: 12.5px;
+}
+
+.help-card-title {
+    -fx-fill: #1b3a4b;
+    -fx-font-weight: bold;
+    -fx-font-size: 12.5px;
+}
+
+.help-button {
+    -fx-background-color: transparent;
+    -fx-border-color: #b9d2dc;
+    -fx-border-radius: 4px;
+    -fx-text-fill: #1b3a4b;
+    -fx-padding: 4px 11px;
+}
+
+.help-button:hover {
+    -fx-background-color: #e8f2f6;
+}
