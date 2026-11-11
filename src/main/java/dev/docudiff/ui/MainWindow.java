@@ -1,7 +1,5 @@
 package dev.docudiff.ui;
 
-import dev.docudiff.diff.DocumentDiff;
-import dev.docudiff.diff.RowDiff;
 import dev.docudiff.library.DocumentFolder;
 import dev.docudiff.library.LibraryRoot;
 import dev.docudiff.versioning.DocumentFormat;
@@ -35,7 +33,7 @@ import java.util.function.Consumer;
  * along the bottom, and a busy overlay that covers the whole window while slow work runs.
  *
  * <p>Owns layout and view state only. Document operations live in {@link DocumentActions}; the
- * diff wiring lives in {@link ComparisonService}.
+ * comparison surface lives in {@link DiffTab}.
  *
  * <p><b>Every slow operation goes through {@link #run}.</b> Rendering a docx shells out to
  * LibreOffice and rasterises a PDF; doing that on the JavaFX thread both freezes the window and
@@ -51,14 +49,9 @@ public final class MainWindow extends StackPane implements BackgroundRunner {
     private final LibraryPane libraryPane;
     private final VersionListPane versionListPane;
     private final DocumentViewPane documentViewPane = new DocumentViewPane();
-    private final DiffPane diffPane = new DiffPane();
-    private final javafx.scene.layout.StackPane legendHolder =
-            new javafx.scene.layout.StackPane();
+    private final DiffTab diffTab;
     private final Label statusLabel = UiParts.muted("Ready.");
     private final DocumentActions actions;
-
-    private VersionEntry leftVersion;
-    private VersionEntry rightVersion;
 
     public MainWindow(Stage stage) {
         this.libraryRoot = LibraryRoot.defaultRoot();
@@ -66,16 +59,19 @@ public final class MainWindow extends StackPane implements BackgroundRunner {
                 stage, libraryRoot, this, this::refreshLibrary, this::setStatus, this::showError);
         this.libraryPane = new LibraryPane(libraryRoot, this::openDocument);
         this.versionListPane = new VersionListPane((version, unusedFlag) -> {
-            rightVersion = version;
-            refreshComparison();
+            DocumentFolder documentFolder = actions.currentDocument();
+            VersionRepository repository = actions.currentRepository();
+            if (documentFolder != null && repository != null) {
+                renderDocumentView(documentFolder, repository, version);
+            }
         });
+        this.diffTab = new DiffTab(this, this::setStatus);
 
         content.setLeft(libraryPane);
         content.setCenter(buildTabs());
         content.setBottom(buildToolbar());
         content.setPadding(new Insets(8));
         libraryPane.setPrefWidth(240);
-        legendHolder.getChildren().setAll(DiffLegend.strip());
 
         getChildren().addAll(content, busyOverlay);
     }
@@ -83,13 +79,9 @@ public final class MainWindow extends StackPane implements BackgroundRunner {
     private TabPane buildTabs() {
         TabPane tabPane = new TabPane();
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
-
-        VBox diffTabContent = new VBox(diffPane, legendHolder);
-        VBox.setVgrow(diffPane, Priority.ALWAYS);
-
         tabPane.getTabs().addAll(
                 new Tab("Document", documentViewPane),
-                new Tab("Diff", diffTabContent),
+                new Tab("Diff", diffTab),
                 new Tab("Versions", versionListPane));
         return tabPane;
     }
@@ -161,45 +153,45 @@ public final class MainWindow extends StackPane implements BackgroundRunner {
     private void openDocument(DocumentFolder documentFolder) {
         VersionRepository repository = new VersionRepository(documentFolder.folderPath());
         actions.setCurrentDocument(documentFolder, repository);
-        leftVersion = null;
-        rightVersion = null;
-        refreshVersions(repository);
-        showCurrentVersion(documentFolder, repository);
+        refreshVersions(documentFolder, repository);
     }
 
-    private void refreshVersions(VersionRepository repository) {
+    private void refreshVersions(DocumentFolder documentFolder, VersionRepository repository) {
         run("Reading version history…", repository::listVersions, versions -> {
             versionListPane.setVersions(versions);
-            if (versions.size() >= 2) {
-                leftVersion = versions.get(1);
-                rightVersion = versions.get(0);
-            } else if (versions.size() == 1) {
-                leftVersion = versions.get(0);
-                rightVersion = versions.get(0);
-            }
-            refreshComparison();
+            diffTab.setDocument(documentFolder, repository, versions);
+            showCurrentVersion(documentFolder, repository, versions);
         });
     }
 
-    private void showCurrentVersion(DocumentFolder documentFolder, VersionRepository repository) {
+    private void showCurrentVersion(
+            DocumentFolder documentFolder,
+            VersionRepository repository,
+            List<VersionEntry> versions) {
         run("Checking the working file…",
                 () -> repository.probeWorkingFile(documentFolder.workingFileName()),
                 (WorkingFileState state) -> {
                     setStatus("Working file: "
                             + state.name().toLowerCase(java.util.Locale.ROOT) + ".");
-                    renderDocumentView(documentFolder, repository);
+                    if (versions.isEmpty()) {
+                        documentViewPane.showPlaceholder("This document has no versions yet.");
+                        return;
+                    }
+                    renderDocumentView(documentFolder, repository, versions.get(0));
                 });
     }
 
-    private void renderDocumentView(DocumentFolder documentFolder, VersionRepository repository) {
+    private void renderDocumentView(
+            DocumentFolder documentFolder,
+            VersionRepository repository,
+            VersionEntry version) {
         DocumentFormat format;
         String fileName;
         try {
             format = documentFolder.format();
             fileName = documentFolder.workingFileName();
         } catch (Exception exception) {
-            documentViewPane.showPlaceholder(
-                    "This folder holds no supported document.");
+            documentViewPane.showPlaceholder("This folder holds no supported document.");
             return;
         }
         if (format == DocumentFormat.XLSX) {
@@ -207,11 +199,6 @@ public final class MainWindow extends StackPane implements BackgroundRunner {
                     "Spreadsheets appear in the Diff tab as aligned rows.");
             return;
         }
-        if (rightVersion == null) {
-            documentViewPane.showPlaceholder("This document has no versions yet.");
-            return;
-        }
-        VersionEntry version = rightVersion;
         Callable<Path> scratchCopy = () -> comparisonService.scratchFileOf(
                 repository, fileName, version.commitId());
 
@@ -225,40 +212,6 @@ public final class MainWindow extends StackPane implements BackgroundRunner {
                 scratchCopy,
                 scratchFile -> documentViewPane.showDocx(
                         scratchFile, documentFolder.cacheDirectory(), version.commitId()));
-    }
-
-    private void refreshComparison() {
-        DocumentFolder documentFolder = actions.currentDocument();
-        VersionRepository repository = actions.currentRepository();
-        if (documentFolder == null || repository == null
-                || leftVersion == null || rightVersion == null) {
-            return;
-        }
-        if (leftVersion.commitId().equals(rightVersion.commitId())) {
-            diffPane.showPlaceholder("Pick two different versions to compare.");
-            return;
-        }
-        run("Comparing versions…",
-                () -> comparisonService.compare(
-                        documentFolder, repository, leftVersion, rightVersion),
-                this::showComparison);
-    }
-
-    private void showComparison(ComparisonService.Comparison comparison) {
-        DocumentDiff documentDiff = comparison.documentDiff();
-        if (documentDiff != null) {
-            legendHolder.getChildren().setAll(DiffLegend.strip());
-            diffPane.showDocumentDiff(documentDiff);
-            setStatus(documentDiff.changedBlockCount() + " changed block(s).");
-            return;
-        }
-        legendHolder.getChildren().setAll(DiffLegend.stripForSheet());
-        List<RowDiff> rowDiffs = comparison.rowDiffs();
-        diffPane.showRowDiffs(rowDiffs, comparison.sheetName());
-        long changedRows = rowDiffs.stream()
-                .filter(rowDiff -> rowDiff.status() != dev.docudiff.diff.DiffStatus.UNCHANGED)
-                .count();
-        setStatus(changedRows + " changed row(s).");
     }
 
     void setStatus(String message) {

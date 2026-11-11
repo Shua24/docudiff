@@ -331,3 +331,110 @@
     -fx-font-size: 10px;
     -fx-text-fill: #5b7078;
 }
+
+/* ── Comparison bar (two slots) ───────────────────────────────────────────── */
+
+.comparison-bar {
+    -fx-background-color: #f4f9fb;
+    -fx-border-color: #dbe7ec;
+    -fx-border-width: 1px;
+    -fx-border-radius: 4px 4px 0 0;
+}
+
+.slot-box {
+    -fx-font-size: 11.5px;
+}
+
+.slot-box .list-cell {
+    -fx-padding: 3px 8px;
+}
+
+.swap-button {
+    -fx-background-color: transparent;
+    -fx-border-color: #b9d2dc;
+    -fx-border-radius: 4px;
+    -fx-text-fill: #1b3a4b;
+    -fx-padding: 2px 9px;
+    -fx-font-size: 13px;
+}
+
+.swap-button:hover {
+    -fx-background-color: #e8f2f6;
+}
+
+/* ── Search bar ───────────────────────────────────────────────────────────── */
+
+.search-bar {
+    -fx-background-color: #eef5f8;
+    -fx-border-color: #dbe7ec;
+    -fx-border-width: 0 0 1 0;
+}
+
+.search-field {
+    -fx-font-size: 11.5px;
+    -fx-background-radius: 4px;
+    -fx-border-radius: 4px;
+    -fx-border-color: #c3d8e0;
+    -fx-background-color: #ffffff;
+    -fx-padding: 3px 7px;
+}
+
+.search-counter {
+    -fx-font-size: 11px;
+    -fx-text-fill: #4a6472;
+    -fx-min-width: 62px;
+}
+
+.search-step {
+    -fx-background-color: transparent;
+    -fx-border-color: #b9d2dc;
+    -fx-border-radius: 4px;
+    -fx-text-fill: #1b3a4b;
+    -fx-padding: 1px 8px;
+    -fx-font-size: 13px;
+    -fx-min-width: 24px;
+}
+
+.search-step:hover {
+    -fx-background-color: #e8f2f6;
+}
+
+.search-clear {
+    -fx-background-color: transparent;
+    -fx-text-fill: #5b7078;
+    -fx-font-size: 11px;
+    -fx-padding: 2px 6px;
+}
+
+.search-clear:hover {
+    -fx-text-fill: #1b3a4b;
+}
+
+/* The note that says a hit is not itself a change. Muted, because it is reassurance, not a
+   warning: finding unchanged text is a legitimate result. */
+.search-note {
+    -fx-font-size: 10.5px;
+    -fx-text-fill: #6b7d87;
+    -fx-padding: 0 0 0 2px;
+}
+
+/* A search hit inside the diff. JavaFX Text has no background, so the highlight is a fill colour
+   change — deliberately not the same colour family as added/removed, so a highlight is never
+   mistaken for a change. */
+.search-hit {
+    -fx-fill: #a86000;
+    -fx-font-weight: bold;
+}
+
+/* The hit the reader is currently on. Inverted with a stroke halo so next/previous visibly moves
+   even when two matches sit next to each other. */
+.search-hit.search-hit-current {
+    -fx-fill: #ffffff;
+    -fx-stroke: #c85a00;
+    -fx-stroke-width: 1.5px;
+    -fx-font-weight: bold;
+}
+
+.sheet-value-flow {
+    -fx-padding: 0;
+}

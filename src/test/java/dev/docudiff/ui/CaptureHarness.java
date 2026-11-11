@@ -42,6 +42,11 @@ public final class CaptureHarness extends Application {
             Platform.runLater(() -> selectFirstDocument(scene));
             sleep(3500);
             Platform.runLater(() -> selectTab(scene, tab));
+            String searchTerm = System.getProperty("search.term");
+            if (searchTerm != null) {
+                sleep(2500);
+                Platform.runLater(() -> typeSearch(scene, searchTerm));
+            }
             if (Boolean.getBoolean("show.help")) {
                 sleep(2500);
                 Platform.runLater(() -> DiffLegend.showHelpDialog(stage));
@@ -50,6 +55,35 @@ public final class CaptureHarness extends Application {
             sleep(holdSeconds * 1000L);
             Platform.exit();
         }).start();
+    }
+
+    /** Types into the diff search box, so a screenshot can show highlighting and the note. */
+    private static void typeSearch(Scene scene, String term) {
+        Node node = scene.lookup(".search-field");
+        if (node instanceof javafx.scene.control.TextField field) {
+            field.setText(term);
+            System.out.println("HARNESS searched for: " + term);
+        } else {
+            System.out.println("HARNESS search field not found");
+        }
+        dumpSlots(scene);
+    }
+
+    /** Prints what the two slot dropdowns and the library list actually hold, for verification. */
+    private static void dumpSlots(Scene scene) {
+        int index = 0;
+        for (Node node : scene.getRoot().lookupAll(".slot-box")) {
+            if (node instanceof javafx.scene.control.ComboBox<?> box) {
+                System.out.println("HARNESS slot[" + index + "] = " + box.getValue());
+                index++;
+            }
+        }
+        Node listNode = scene.lookup(".library-pane .list-view");
+        if (listNode instanceof ListView<?> listView) {
+            System.out.println("HARNESS library items = " + listView.getItems());
+            System.out.println("HARNESS library selected = "
+                    + listView.getSelectionModel().getSelectedItem());
+        }
     }
 
     private static void selectFirstDocument(Scene scene) {

@@ -24,9 +24,9 @@ connection, and nothing is uploaded anywhere.
 People who work with documents end up with `report-final.docx`, `report-final-v2.docx`, and
 `report-final-ACTUALLY-final.docx`, and no reliable way to answer "what did I change on Tuesday,
 and can I get that sentence back?" Docudiff answers both questions. It stores every version of a
-document, shows you exactly what changed between any two versions (down to the word, and down to
-a bold or font change), and lets you keep parallel lines of work that you can later bring back
-together.
+document, shows you exactly what changed between any two documents (down to the word, and down to
+a bold or font change) — including one you sent out and got back — and lets you keep parallel lines
+of work that you can later bring back together.
 
 ### Getting your documents in: importing
 
@@ -100,13 +100,54 @@ If LibreOffice is not installed, the page view says so and **everything else kee
 Install LibreOffice, or set the `DOCUDIFF_LIBREOFFICE` environment variable to its full path, and
 restart Docudiff.
 
-### Comparing two versions: the Diff tab
+### Comparing documents: the Diff tab
 
 This is the point of the program.
 
-1. Open the **Versions** tab. Every version is listed newest-first with its name and timestamp.
-2. Click one. Docudiff compares it against the version just before it and shows the result.
-3. Changes are colour-coded: a warm card means edited, green means added, red means removed.
+At the top of the tab are two slots, **From** and **To**. Each one can hold a version of the open
+document, the working file as it is right now, or any file on disk. Pick one on each side and the
+diff appears. The ⇄ button swaps them.
+
+A version is what you get from **Snapshot version**; the working file is the document as it stands
+in the library folder, including edits you made in LibreOffice and have not snapshotted yet.
+
+1. To compare two versions, choose one in **From** and another in **To**. Opening a document
+   defaults to its two newest snapshots, so usually there is nothing to pick.
+2. To compare against the working file, choose **Working file (as it is now)** on either side.
+   This answers "what have I changed since I last saved a version?" — a comparison that was not
+   possible before, when only snapshotted versions could be compared.
+3. To compare against a document someone else sent you, choose **Choose a file…** and pick it.
+4. Changes are colour-coded: a warm card means edited, green means added, red means removed.
+
+**Comparing a document that came back to you.** Send a document to a reviewer, get it back, and you
+do not have to import it, branch anything, or give it a parent version: put a version of your
+document on one side and their returned file on the other. The comparison is a pure document-to-
+document diff and is never saved — it is a view, not a record. Two consequences worth knowing:
+
+- The two sides must be the **same format**. Comparing a `.docx` against a `.xlsx` is refused with a
+  message naming both formats, because the blocks do not correspond and there is nothing honest to
+  show. The file picker is already filtered to the format of the other side, so the impossible pair
+  is hard to reach by accident.
+- A comparison is **read once, when you ask for it**. Bytes are captured at that moment, so editing
+  the file afterwards does not silently change the diff you are looking at.
+
+**Searching inside a diff.** The search box above the diff finds text in what is on screen. Matches
+are highlighted in place; **‹** and **›** step between them and the counter says which one you are
+on. Matching is case-insensitive and is a plain substring — no regex, no options.
+
+When the current match is in a part of the document that did not change, the bar says so:
+
+```text
+1 of 3 · this part is not changed — the match is in an unchanged part of the document
+```
+
+That note matters: finding a word is not the same as finding a *change*, and a diff is exactly the
+place where those two get confused.
+
+While a search is active, a **spreadsheet diff renders every row**, not only the changed ones — the
+summary switches to `showing all 5 row(s) · search active`. Without this, searching for a value in an
+untouched row would report "no matches" for something visibly present in the sheet. Clearing the box
+returns the grid to changed-rows-only.
 
 **Reading the result.** A legend strip sits permanently under the diff, spelling out what each
 colour and mark means, so you never have to remember it or go looking. If you want the longer
@@ -153,9 +194,9 @@ value is shown as context.
 
 **Markdown.** Compared line by line, like a programmer's diff, with changed words marked.
 
-You can compare **any two versions**, including versions on different branches — pick one version,
-then another, and the diff shows the difference between them regardless of where they sit in the
-history.
+You can compare **any two documents**, including versions on different branches — pick one on each
+side, and the diff shows the difference between them regardless of where they sit in the history,
+or whether the right-hand side is in the library at all.
 
 ### Branching
 
@@ -284,12 +325,25 @@ file in a repository.
 ### The comparison pipeline
 
 ```text
-bytes of version A ─┐
-                    ├─► extractor ─► DocumentTree ─┐
-bytes of version B ─┘                              ├─► DocumentDiffer ─► DocumentDiff
-                                                   │      │
-                                            ParagraphAligner  WordDiffer + FormattingAnnotator
+version blob ─┐
+file on disk ─┼─► DocumentSourceResolver ─► DocumentSource ─┐
+working file ─┘   (label, bytes, format)                    │
+                                                            ▼
+                                                    DocumentComparer
+                                                            │
+                                    ┌───────────────────────┴───────────────────────┐
+                                    ▼                                               ▼
+                              extractor ─► DocumentTree ─► DocumentDiffer      XlsxExtractor
+                                    │            │                              │
+                            ParagraphAligner  WordDiffer + FormattingAnnotator  SheetRowAligner
+                                    │                                               │
+                                    └──────────────► Comparison ◄───────────────────┘
 ```
+
+`DocumentComparer` takes two `DocumentSource`s and nothing else. It has no repository, no version
+and no working file, which is why version-against-version, version-against-returned-file,
+file-against-file and working-file-against-version are all the same code path. Callers fetch bytes;
+the comparer decides what changed.
 
 `DocumentDiffer` diffs **section by section**, matching sections by name (`Body`, `Header 1`,
 `Footer 1`). This is what stops a header paragraph from pairing with a body paragraph holding
@@ -385,11 +439,23 @@ first, and `Platform.exit()` is deferred to a later pulse. Do not remove `SafeEx
 from `DocudiffApplication`, and do not switch a dialog to `show()` — `showAndWait()` is what makes
 the ordering deterministic.
 
+**13. Search highlighting is built during rendering, not applied afterwards.** The document renderer
+emits one `Text` node per word mark, so a match can straddle a word boundary or sit inside one.
+Walking the scene graph after the fact cannot split those nodes. `SearchHighlighter.appendHighlighted`
+returns the number of matches it emitted, and `DiffPane` records a `MatchSpot` for each one in render
+order — that ordering is what the ‹ › buttons navigate by, so it must stay in step with what is
+actually on screen.
+
+**14. A spreadsheet diff renders unchanged rows only while a search is active.** `SheetDiffView`
+skips `UNCHANGED` rows normally, which would make a keyword in an untouched row unfindable and read
+as a broken search. The summary line switches to `showing all N row(s) · search active` so the count
+never lies about which mode it is in.
+
 ### Adding a new document format
 
 1. Write a `FooExtractor` that produces a `DocumentTree` (or a `WorkbookModel` for tabular formats).
 2. Add the extension to `DocumentFormat`.
-3. Teach `ComparisonService` and `DocumentViewPane` which extractor and renderer to use.
+3. Teach `DocumentComparer` which extractor to use, and `DocumentViewPane` which renderer.
 4. Add a test that extracts a real generated file and asserts block counts and text — follow
    `DocxExtractorTest`.
 
@@ -399,8 +465,8 @@ the ordering deterministic.
 
 - PascalCase for types, camelCase for locals and parameters. No abbreviations in identifiers.
 - Every method that returns a value assigns it to a named local first.
-- No file exceeds 300 lines. `MainWindow` was split into `DocumentActions` (dialogs) and
-  `ComparisonService` (diff wiring) to stay under it; keep that split.
+- No file exceeds 300 lines. `MainWindow` was split into `DocumentActions` (dialogs) and `DiffTab`
+  (the comparison surface) to stay under it; keep that split.
 - Comments explain *why*, and where a decision was measured, the measurement is quoted in the
   comment. The `mergeForkOnly` and `DocxPdfRenderer` comments are the model to follow.
 - Code that can take seconds (LibreOffice, diffing large files) runs on a background thread via

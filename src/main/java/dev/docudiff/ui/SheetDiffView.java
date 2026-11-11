@@ -14,10 +14,7 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Renders a spreadsheet diff as an actual grid of cells, with the changed cells highlighted.
@@ -30,16 +27,36 @@ import java.util.Set;
  * <p>Rows carry their own cell lists (from {@link RowDiff}), and cells are laid out by their
  * absolute {@code column} index, so an inserted column lands in the right place instead of
  * shifting everything to the left.
+ *
+ * <p>While a search is active every row is rendered, not just the changed ones. Unchanged rows are
+ * what a keyword is most likely to be sitting in, and skipping them would make the search box
+ * silently unable to find things that are visibly in the sheet.
  */
 public final class SheetDiffView {
-
-    private static final int MAX_DISPLAY_VALUE_LENGTH = 60;
 
     private SheetDiffView() {
     }
 
-    /** The whole sheet diff: a header strip, a column ruler, then the rows. */
+    /** The whole sheet diff with no search applied. */
     public static Region render(List<RowDiff> rowDiffs, String sheetName) {
+        return render(rowDiffs, sheetName, "", -1, false, null);
+    }
+
+    /**
+     * The whole sheet diff: a header strip, a column ruler, then the rows.
+     *
+     * @param query          the search text; empty for no highlighting
+     * @param currentMatch   index of the match to emphasise, or -1 for none
+     * @param showUnchanged  true to render unchanged rows as well as changed ones
+     * @param matchSpots     collects one entry per match found, or null to skip recording
+     */
+    public static Region render(
+            List<RowDiff> rowDiffs,
+            String sheetName,
+            String query,
+            int currentMatch,
+            boolean showUnchanged,
+            List<MatchSpot> matchSpots) {
         VBox root = new VBox(0);
         root.getStyleClass().add("sheet-diff");
 
@@ -48,8 +65,9 @@ public final class SheetDiffView {
                 .filter(rowDiff -> rowDiff.status() != DiffStatus.UNCHANGED)
                 .count();
 
-        root.getChildren().add(summaryBar(sheetName, rowDiffs.size(), changedRows));
-        if (changedRows == 0) {
+        root.getChildren().add(summaryBar(sheetName, rowDiffs.size(), changedRows,
+                showUnchanged));
+        if (changedRows == 0 && !showUnchanged) {
             Label identical = UiParts.muted("The two sheets are identical.");
             identical.setPadding(new Insets(16, 12, 16, 12));
             root.getChildren().add(identical);
@@ -57,16 +75,20 @@ public final class SheetDiffView {
         }
 
         root.getChildren().add(columnRuler(columnCount));
-        for (RowDiff rowDiff : rowDiffs) {
-            if (rowDiff.status() == DiffStatus.UNCHANGED) {
+        for (int rowIndex = 0; rowIndex < rowDiffs.size(); rowIndex++) {
+            RowDiff rowDiff = rowDiffs.get(rowIndex);
+            if (rowDiff.status() == DiffStatus.UNCHANGED && !showUnchanged) {
                 continue;
             }
-            root.getChildren().add(rowLine(rowDiff, columnCount));
+            root.getChildren().add(SheetRowView.render(
+                    rowDiff, rowIndex, columnCount, query, currentMatch,
+                    matchSpots == null ? List.of() : matchSpots));
         }
         return root;
     }
 
-    private static Region summaryBar(String sheetName, int totalRows, int changedRows) {
+    private static Region summaryBar(
+            String sheetName, int totalRows, int changedRows, boolean showUnchanged) {
         Label sheetLabel = new Label(sheetName == null || sheetName.isBlank()
                 ? "Sheet" : sheetName);
         sheetLabel.getStyleClass().add("sheet-diff-title");
@@ -74,7 +96,11 @@ public final class SheetDiffView {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        Label counts = new Label(changedRows + " changed row(s) of " + totalRows);
+        // The count has to say which mode it is counting in, or it silently lies while searching.
+        String countText = showUnchanged
+                ? "showing all " + totalRows + " row(s) · search active"
+                : changedRows + " changed row(s) of " + totalRows;
+        Label counts = new Label(countText);
         counts.getStyleClass().add("legend-note");
 
         HBox bar = new HBox(10, sheetLabel, spacer, counts);
@@ -101,98 +127,6 @@ public final class SheetDiffView {
         return ruler;
     }
 
-    private static Region rowLine(RowDiff rowDiff, int columnCount) {
-        GridPane line = new GridPane();
-        line.getStyleClass().add("sheet-diff-row");
-        line.getStyleClass().add(statusClass(rowDiff.status()));
-        line.setPadding(new Insets(3, 8, 3, 8));
-        addGutterColumns(line);
-
-        Label marker = new Label(markerFor(rowDiff.status()));
-        marker.getStyleClass().add("sheet-row-marker");
-        line.add(marker, 0, 0);
-
-        String rowNumberText = rowDiff.right() != null
-                ? String.valueOf(rowDiff.right().rowNumber())
-                : String.valueOf(rowDiff.left().rowNumber());
-        Label number = new Label(rowNumberText);
-        number.getStyleClass().add("sheet-row-number");
-        line.add(number, 1, 0);
-
-        Set<Integer> changedColumns = new HashSet<>(rowDiff.changedColumns());
-
-        for (int column = 1; column <= columnCount; column++) {
-            Region cellNode = cellNode(rowDiff, column, changedColumns);
-            line.add(cellNode, column + 1, 0);
-            line.getColumnConstraints().add(tabularColumn());
-        }
-        return line;
-    }
-
-    /**
-     * One cell. For a changed cell the old value is shown struck through and the new value
-     * follows it, because "12" alone does not tell a reader what it used to be.
-     */
-    private static Region cellNode(RowDiff rowDiff, int column, Set<Integer> changedColumns) {
-        SheetCell leftCell = cellAt(rowDiff.left(), column);
-        SheetCell rightCell = cellAt(rowDiff.right(), column);
-
-        HBox box = new HBox(4);
-        box.setAlignment(Pos.CENTER_LEFT);
-        box.getStyleClass().add("sheet-cell");
-
-        boolean isChanged = changedColumns.contains(column);
-        if (!isChanged) {
-            box.getChildren().add(valueLabel(rightCell != null ? rightCell : leftCell));
-            return box;
-        }
-
-        box.getStyleClass().add("sheet-cell-changed");
-        if (leftCell != null && rightCell == null) {
-            Label removed = valueLabel(leftCell);
-            removed.getStyleClass().add("sheet-value-removed");
-            box.getChildren().add(removed);
-            return box;
-        }
-        if (leftCell == null && rightCell != null) {
-            Label added = valueLabel(rightCell);
-            added.getStyleClass().add("sheet-value-added");
-            box.getChildren().add(added);
-            return box;
-        }
-
-        Label was = valueLabel(leftCell);
-        was.getStyleClass().add("sheet-value-removed");
-        Label now = valueLabel(rightCell);
-        now.getStyleClass().add("sheet-value-added");
-        box.getChildren().addAll(was, arrow(), now);
-
-        if (rightCell != null && rightCell.formula() != null) {
-            Label formula = new Label("=" + rightCell.formula());
-            formula.getStyleClass().add("sheet-cell-formula");
-            box.getChildren().add(formula);
-        }
-        return box;
-    }
-
-    private static Label valueLabel(SheetCell cell) {
-        String text = cell == null || cell.displayedValue() == null
-                ? "" : cell.displayedValue();
-        if (text.length() > MAX_DISPLAY_VALUE_LENGTH) {
-            text = text.substring(0, MAX_DISPLAY_VALUE_LENGTH - 1) + "…";
-        }
-        Label label = new Label(text);
-        label.getStyleClass().add("sheet-value");
-        label.setMaxWidth(Double.MAX_VALUE);
-        return label;
-    }
-
-    private static Label arrow() {
-        Label arrow = new Label("→");
-        arrow.getStyleClass().add("sheet-arrow");
-        return arrow;
-    }
-
     /** Two fixed columns before the data: the status marker, then the row number. */
     private static void addGutterColumns(GridPane grid) {
         ColumnConstraints markerColumn = new ColumnConstraints();
@@ -212,18 +146,6 @@ public final class SheetDiffView {
         column.setPrefWidth(120);
         column.setHgrow(Priority.SOMETIMES);
         return column;
-    }
-
-    private static SheetCell cellAt(SheetRow row, int column) {
-        if (row == null) {
-            return null;
-        }
-        for (SheetCell cell : row.cells()) {
-            if (cell.column() == column) {
-                return cell;
-            }
-        }
-        return null;
     }
 
     private static int highestColumn(List<RowDiff> rowDiffs) {
@@ -252,23 +174,5 @@ public final class SheetDiffView {
         }
         String result = name.toString();
         return result;
-    }
-
-    private static String markerFor(DiffStatus status) {
-        return switch (status) {
-            case ADDED -> "+";
-            case REMOVED -> "−";
-            case MODIFIED -> "~";
-            case UNCHANGED -> "";
-        };
-    }
-
-    private static String statusClass(DiffStatus status) {
-        return switch (status) {
-            case ADDED -> "diff-added";
-            case REMOVED -> "diff-removed";
-            case MODIFIED -> "diff-modified";
-            case UNCHANGED -> "diff-unchanged";
-        };
     }
 }
