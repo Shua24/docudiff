@@ -551,7 +551,13 @@ The following were planned and are **absent** from the code. Do not document the
 - **Merging content.** Merge takes one branch's version wholesale; no three-way merge exists.
 - **Footnotes, endnotes, comments, nested tables.** Not extracted, therefore not diffed.
 - **Windows packaging.** The code is written portably but only a Linux build has been produced.
-- **Google Docs.** A Google Doc must be exported to `.docx` first.
+
+### Deliberately out of scope
+
+- **Google Docs.** Dropped, not deferred. Fetching a Google Doc means a network round-trip and an
+  account, which contradicts the offline-first principle the rest of the app is built on: your
+  documents live in a folder on your machine and nothing leaves it. Export to `.docx` and import
+  that if you need to compare one.
 
 ---
 
