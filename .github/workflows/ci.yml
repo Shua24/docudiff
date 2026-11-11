@@ -158,3 +158,94 @@ jobs:
           name: ${{ matrix.artifact }}
           path: target/dist/
           if-no-files-found: error
+
+  msi:
+    name: Windows MSI installer
+    needs: test
+    # A release artifact, not a per-commit one: a tag or a manual run. Building an MSI on every
+    # push would spend a Windows runner and a WiX invocation for something nobody downloads.
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      # jpackage shells out to WiX 3's candle.exe/light.exe to build an MSI. The windows-latest
+      # image ships WiX 3.14, so nothing is installed here — but a future image could drop it, and
+      # a missing toolchain must fail loudly rather than produce an empty dist directory.
+      - name: Check the WiX toolset
+        shell: pwsh
+        run: |
+          $candle = Get-Command candle.exe -ErrorAction SilentlyContinue
+          if (-not $candle) {
+            Write-Host "::error::candle.exe not found. jpackage --type msi needs WiX 3, which this runner image is expected to ship."
+            exit 1
+          }
+          Write-Host "WiX at $($candle.Source) (jpackage uses the WiX 3 CLI)"
+          Get-ChildItem "C:\Program Files (x86)\WiX Toolset*" -ErrorAction SilentlyContinue | Select-Object Name
+
+      - name: Build the jar and collect runtime dependencies
+        shell: pwsh
+        run: |
+          [xml]$pom = Get-Content pom.xml
+          $version = $pom.project.version
+          Write-Host "Version: $version"
+          mvn -B -DskipTests package
+          mvn -B dependency:copy-dependencies "-DoutputDirectory=target/app" "-DincludeScope=runtime"
+          Copy-Item "target/docudiff-$version.jar" target/app/
+          if (-not (Test-Path "target/app/docudiff-$version.jar")) { exit 1 }
+
+      - name: Build the MSI
+        shell: pwsh
+        run: |
+          [xml]$pom = Get-Content pom.xml
+          $version = $pom.project.version
+          jpackage `
+            --type msi `
+            --name Docudiff `
+            --app-version $version `
+            --input target/app `
+            --main-jar "docudiff-$version.jar" `
+            --main-class dev.docudiff.Launcher `
+            --dest target/dist `
+            --win-menu `
+            --win-shortcut `
+            --win-dir-chooser `
+            --vendor "Docudiff"
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::jpackage exited $LASTEXITCODE"; exit 1 }
+
+      # Neither the exit status nor the output directory is a reliable signal on its own: jpackage
+      # creates the directory even when the bundler fails, and has been measured exiting 0 on a
+      # failed image. Gate on the file and on a size nothing empty could reach.
+      - name: Verify the MSI
+        shell: pwsh
+        run: |
+          [xml]$pom = Get-Content pom.xml
+          $version = $pom.project.version
+          $msi = "target/dist/Docudiff-$version.msi"
+          if (-not (Test-Path $msi)) {
+            Write-Host "::error::No MSI at $msi"
+            Get-ChildItem target/dist -Recurse -ErrorAction SilentlyContinue | Select-Object FullName, Length
+            exit 1
+          }
+          $size = (Get-Item $msi).Length
+          Write-Host "MSI produced: $msi ($([math]::Round($size / 1MB, 1)) MB)"
+          if ($size -lt 5MB) {
+            Write-Host "::error::The MSI is only $size bytes — an installer bundling a runtime is tens of megabytes, so this is a failed build."
+            exit 1
+          }
+
+      - name: Upload the MSI
+        uses: actions/upload-artifact@v4
+        with:
+          name: docudiff-windows-msi
+          path: target/dist/*.msi
+          if-no-files-found: error

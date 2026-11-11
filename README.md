@@ -7,10 +7,9 @@ way programmers branch and merge code — without ever touching a command line.
 It is read-only by design: Docudiff never edits your document. You keep writing in Word, Excel, or
 your Markdown editor; Docudiff records, compares, and preserves.
 
-**Status:** MVP, working. 69 automated tests pass (`mvn test`). The application launches and the
-full library / document / diff / versions window renders. Three features that were planned are
-**not** implemented and are listed under [Not implemented yet](#not-implemented-yet) — read that
-section before you rely on anything.
+**Status:** v1.0.0, working. 143 automated tests pass (`mvn test`). The application launches and the
+full library / document / diff / versions window renders. What is still missing is listed under
+[Not implemented yet](#not-implemented-yet) — read that section before you rely on anything.
 
 ---
 
@@ -131,6 +130,37 @@ document diff and is never saved — it is a view, not a record. Two consequence
 - A comparison is **read once, when you ask for it**. Bytes are captured at that moment, so editing
   the file afterwards does not silently change the diff you are looking at.
 
+**Sending feedback back: Export review report…** Above the two slots, a header states what is being
+compared (`Before: <one side>   ·   After: <the other>`), and **Export review report…** writes that
+comparison into a **Word document** you can email back. Nothing is imported, committed, or recorded:
+the report is the only file created, and the app still never edits document content.
+
+The report contains the two sides by name, how many blocks or rows changed, anything that was not
+compared, and then each change in reading order:
+
+- removed words **struck through**, inserted words **underlined** — the same reading experience as
+  Word's own comparison, and still legible in black and white;
+- formatting changes as a small grey line under the block (`formatting: bold applied`);
+- for a spreadsheet, one small before/after table per changed row, with the changed cells shaded and
+  bold, because a cell is not a word and a paragraph would lose the grid.
+
+A comparison with **no differences** still produces a report that says *"No differences found."* —
+a clean review is a real answer, and printing it is the point.
+
+The save dialog starts in your `Documents` folder rather than the library. That is deliberate: a
+report saved inside a document's own folder would be picked up as document content on the next
+snapshot, and the report would then appear inside the history it describes.
+
+**When part of a document was not compared, both the app and the report say so.** Footnotes,
+endnotes, comments and nested tables are not extracted, so changing only a comment would otherwise
+show as *"identical"*. Instead a notice sits above the diff and in the report header:
+
+```text
+"returned.docx" contains comments (1), which are not compared.
+```
+
+Read that line before trusting a "no changes" result.
+
 **Searching inside a diff.** The search box above the diff finds text in what is on screen. Matches
 are highlighted in place; **‹** and **›** step between them and the counter says which one you are
 on. Matching is case-insensitive and is a plain substring — no regex, no options.
@@ -173,8 +203,9 @@ formatting: size changed to 14
 This means a change that alters no text at all — making a heading bold, for example — still shows
 up as a change, because it *is* one.
 
-Only the document **body and its headers and footers** are compared. Footnotes, endnotes, and
-comments are not.
+Only the document **body and its headers and footers** are compared. Footnotes, endnotes, comments
+and nested tables are not — and when a compared file contains them, the diff says so with a notice
+above it rather than reporting a confident "identical".
 
 **Spreadsheets.** Rows are matched by **content**, not by position. This is the difference between
 a useful diff and a useless one:
@@ -232,6 +263,46 @@ without disturbing the version you are happy with.
 **Switching is refused while the working file is modified.** Docudiff will not silently discard an
 unsaved edit; it tells you to snapshot or discard the change first.
 
+**Deleting a branch.** **More ▾ → Delete branch…** lists every branch except the one you are on
+(git itself refuses to delete the checked-out branch, and Docudiff says so rather than failing
+obscurely). You get a confirmation naming the branch, and the message is honest about what happens:
+the branch's versions disappear from the list and the commits stay in the repository, but the app
+cannot bring the branch back.
+
+### Deleting and restoring versions
+
+**More ▾ → Delete selected version…** removes the version selected in the **Versions** tab.
+
+Nothing is rewritten and nothing is destroyed. A commit in the middle of a history cannot be
+removed without rebuilding every commit after it, so Docudiff instead records a *deletion marker*
+for that version and the list stops showing it. The commit stays in the repository, so it survives
+a backup or a copy to another machine, and restoring is exactly reversible.
+
+- A deleted version that a **branch still points at** stays visible, marked `(deleted)` and `held by
+  a branch`, with a **Restore** button. Hiding it would leave the branch attached to a version you
+  cannot see — and "I snapshotted by mistake" is exactly the case where the newest snapshot is the
+  one you want to remove.
+- Everything else is hidden until you tick **Show deleted** above the version list.
+- Deleted versions do not appear in the Diff tab's pickers, so they cannot be compared by accident.
+- Snapshot names are never reused: a deleted `report-snapshot-2026-11-11` still occupies that name,
+  and the next snapshot of the day becomes `-2`.
+
+### Discarding changes
+
+Edited the file in LibreOffice, then decided against it? **More ▾ → Discard working changes…** puts
+the working file back to the current branch's newest snapshot. It asks first and names the file,
+because this is the only operation in the app that throws content away — the last snapshot is what
+remains. If the working file has been deleted from the folder, the same action restores it.
+
+### Settings
+
+**More ▾ → Settings…** sets where LibreOffice lives. The dialog also shows what Docudiff currently
+detects, so a wrong path is visible before you save. An empty field means "detect it automatically".
+
+The setting is stored in `~/.config/docudiff/settings.properties`. A path typed there **wins** over
+the `DOCUDIFF_LIBREOFFICE` environment variable, which remains as the fallback for anyone already
+using it; with neither set, Docudiff looks on `PATH` and in the usual install locations.
+
 ### Merging
 
 Click **Merge branch…** and choose which branch to take content from. That branch's version
@@ -277,7 +348,7 @@ JavaFX is **not** installed on the system and must not be. It comes from Maven C
 
 ```bash
 mvn -q -B javafx:run     # build and launch the application
-mvn -q -B test           # run all 69 tests
+mvn -q -B test           # run all 143 tests
 mvn -q -B compile        # compile only, no tests
 ```
 
@@ -287,7 +358,7 @@ launch.
 ### Running the tests
 
 ```text
-Tests run: 69, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 143, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
@@ -315,16 +386,21 @@ src/main/java/dev/docudiff/
   document/                  the shared document model (blocks, spans, sheets)
   extract/                   one extractor per format: docx, xlsx, markdown
   diff/                      alignment, word marks, formatting annotations, row alignment
+  report/                    the exported review report (Word output)
   render/                    LibreOffice invocation and PDF page rendering
+  settings/                  ~/.config/docudiff/settings.properties
   ui/                        JavaFX panes, dialogs, and the comparison wiring
 src/main/resources/docudiff.css
 src/test/java/dev/docudiff/  mirrors the packages above, plus EndToEndTest
+MANUAL-TEST.md               the hand-run flow, with expected outcomes
 ```
 
 Nothing under `target/` is hand-written; it is all generated by Maven and is never edited.
 
-Largest source file is 256 lines (`versioning/VersionRepository.java`); every file in `src/` is
-under 300.
+Largest source file is 286 lines (`versioning/VersionRepository.java`); every file in `src/` is
+under 300. That limit is why `ForkMerger`, `WorkingCopy`, `VersionTombstones`, `BranchActions`,
+`VersionActions`, `ReportActions` and the `report/` writers exist as separate classes rather than
+inline blocks.
 
 ### Architecture: the dependency direction
 
@@ -483,6 +559,28 @@ status. `RowDiff.isChanged()` is the single predicate the view must ask; do not 
 workbook with a change on tab two as identical — a confident wrong answer rather than a visible
 gap.
 
+**17. Deleting a version must not rewrite history.** A commit in the middle of a line cannot be
+removed without rebuilding every descendant, so `VersionTombstones` records
+`refs/docudiff/deleted/<commit-id>` and the list filters on it. The commit stays reachable, which is
+what makes it survive a clone or a backup, and restoring is deleting the ref. Rewriting descendants
+would also invalidate every sha a user may have written down.
+
+**18. A deleted version that a branch points at must stay visible.** Filtering purely on the
+deletion marker hides a live branch head, leaving the branch attached to a version the user cannot
+see. `VersionListPane` therefore always shows a marked-deleted version whose commit is in
+`branchHeadCommitIds()`. The toggle hides everything else.
+
+**19. Every repository open must pin `core.autocrlf=false`.** GitHub's Windows runners set it to
+`true` in the system git config, JGit honours it, and a hard reset then rewrites the working file
+with CRLF — so the same document has different bytes per platform and the user's Markdown silently
+changes line endings. All opens go through `VersionRepository.openGit()`; do not construct
+`Git.open` anywhere else.
+
+**20. The review report renders values, never alignment keys.** A spreadsheet row's `signature()` is
+escape-delimited for the alignment algorithm; printing it produces one unreadable line with no
+column boundaries. `ReportText` builds display strings from the cells (`"=SUM(A1:A2)"` or the
+displayed value), and the report writes one table column per real cell.
+
 ### Adding a new document format
 
 1. Write a `FooExtractor` that produces a `DocumentTree` (or a `WorkbookModel` for tabular formats).
@@ -518,11 +616,21 @@ under `xvfb-run`: JavaFX cannot start its toolkit without a display and fails wi
 **`package`** — builds the jar, stages it with its runtime dependencies, and produces an app image
 with `jpackage` on each OS. No cross-compilation: the Windows image is built on Windows.
 
+**`msi`** — the Windows **installer**, built only on a `v*` tag or a manual run, because it is a
+release artifact rather than something to rebuild on every commit. `jpackage --type msi` shells out
+to WiX 3 (`candle.exe`/`light.exe`); the `windows-latest` image ships WiX 3.14, so the job only
+checks that it is present and fails loudly if a future image drops it. The installer is per-machine,
+adds a Start Menu entry and a shortcut, and offers a directory chooser. It is **unsigned**, so
+Windows SmartScreen will show its "unknown publisher" warning; the artifact is uploaded as
+`docudiff-windows-msi` and named `Docudiff-<version>.msi`.
+
 **Verifying a package is the part that is easy to get wrong.** `jpackage` creates the output
 directory even when it fails — a failed run on this machine left `target/dist/Docudiff` present
-with **zero files** in it — so "the directory is not empty" proves nothing. The workflow checks for
-the launcher binary itself (`bin/Docudiff` on Linux, `Docudiff.exe` on Windows) and fails the job
-if it is absent.
+with **zero files** in it — so "the directory is not empty" proves nothing. The app-image job checks
+for the launcher binary itself (`bin/Docudiff` on Linux, `Docudiff.exe` on Windows). The MSI job
+cannot check for a launcher, so it gates on the `.msi` file existing **and** being larger than 5 MB:
+an installer that bundles a Java runtime is tens of megabytes, and nothing that small could be a
+successful build.
 
 ### Known gaps in the build
 
@@ -534,23 +642,30 @@ if it is absent.
 - Measured on this JDK, that failure **exits 1**, not 0 — but the output directory is created
   anyway, so neither the exit status nor the directory's existence is a reliable signal. Check for
   the launcher binary.
-- The Windows job has not been run yet. The workflow is written for it, but until it executes once
-  on `windows-latest`, Windows support is unverified rather than working.
+- The Windows test job has been run and is green. The **MSI** job has not yet executed: it needs a
+  `v*` tag or a manual run, so until the first tag is pushed the installer is written but unproven.
 
 ### Not implemented yet
 
-The following were planned and are **absent** from the code. Do not document them as working:
+Two things are genuinely absent from the code. Do not document them as working:
 
-- **Deleting a branch.** Branches can be created and switched; `VersionRepository` has no
-  `deleteBranch`.
-- **"Discard working changes".** The branch switch refuses to proceed when the file is modified,
-  but there is no button to throw those changes away — snapshot or restore the file by hand.
-- **A settings pane.** The LibreOffice path is set through the `DOCUDIFF_LIBREOFFICE` environment
-  variable only.
-- **Deleting a snapshot.** History is append-only by design.
-- **Merging content.** Merge takes one branch's version wholesale; no three-way merge exists.
-- **Footnotes, endnotes, comments, nested tables.** Not extracted, therefore not diffed.
-- **Windows packaging.** The code is written portably but only a Linux build has been produced.
+- **Merging content.** Merge takes one branch's version wholesale; no three-way merge exists. The
+  "document feedback" feature replaced it: a returned document is compared and reported on, not
+  merged into yours.
+- **Footnotes, endnotes, comments, nested tables.** Not extracted, therefore not compared. The app
+  and the exported report now say so whenever a compared file contains them, so a "no changes"
+  result is not silently wrong.
+
+### Known limits
+
+These are deliberate, not gaps waiting to be filled:
+
+- **Deleting a branch is permanent.** The commits stay in the repository, but Docudiff has no way to
+  bring the branch itself back, and the UI says so before deleting.
+- **Deleting a version is a marker, not a rewrite.** The version disappears from the list and its
+  commit stays in the repository; nothing is ever rewritten, so a deleted version can always be
+  restored.
+- **The Windows MSI is unsigned.** Windows SmartScreen will warn about an unknown publisher.
 
 ### Deliberately out of scope
 

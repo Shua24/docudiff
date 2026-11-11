@@ -30,6 +30,11 @@ public final class OfficeLocator {
     }
 
     public static Optional<Path> locate() {
+        Optional<Path> fromSettings = dev.docudiff.settings.AppSettings.load().libreOfficePath()
+                .filter(Files::isExecutable);
+        if (fromSettings.isPresent()) {
+            return fromSettings;
+        }
         String configured = System.getenv("DOCUDIFF_LIBREOFFICE");
         if (configured != null && !configured.isBlank() && Files.isExecutable(Path.of(configured))) {
             return Optional.of(Path.of(configured));

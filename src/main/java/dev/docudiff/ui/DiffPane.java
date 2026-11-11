@@ -10,6 +10,7 @@ import dev.docudiff.diff.WordMark;
 import dev.docudiff.diff.WordMarkKind;
 import dev.docudiff.search.SearchHighlighter;
 import javafx.scene.Node;
+import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.TextFlow;
@@ -106,11 +107,30 @@ public final class DiffPane extends ScrollPane {
         if (comparison == null) {
             return;
         }
-        List<Node> nodes = comparison.isSpreadsheet()
+        List<Node> nodes = new ArrayList<>(noticeNodes());
+        nodes.addAll(comparison.isSpreadsheet()
                 ? renderSheets(comparison.sheetDiffs())
-                : renderDocument(comparison.documentDiff());
+                : renderDocument(comparison.documentDiff()));
         blocks.getChildren().setAll(nodes);
         matchCountConsumer.accept(matchSpots.size());
+    }
+
+    /**
+     * The "not compared" banner: one label per unsupported construct group.
+     *
+     * <p>It sits above the diff, inside the same scroll pane, so it cannot be missed by a reader
+     * who scrolled to the first change — and because the comparison carries it, it appears no
+     * matter which pane renders the result (including the exported review report).
+     */
+    private List<Node> noticeNodes() {
+        List<Node> notices = new ArrayList<>();
+        for (String notice : comparison.notices()) {
+            Label label = new Label(notice);
+            label.setWrapText(true);
+            label.getStyleClass().add("diff-notice");
+            notices.add(label);
+        }
+        return notices;
     }
 
     private List<Node> renderDocument(DocumentDiff documentDiff) {

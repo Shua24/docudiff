@@ -46,7 +46,31 @@ public final class DocumentComparer {
         DocumentTree leftTree = treeOf(left);
         DocumentTree rightTree = treeOf(right);
         DocumentDiff documentDiff = new DocumentDiffer().diff(leftTree, rightTree);
-        return new Comparison(left.label(), right.label(), documentDiff, null);
+        return new Comparison(left.label(), right.label(), documentDiff, null,
+                noticesOf(left, leftTree, right, rightTree));
+    }
+
+    /**
+     * The "not compared" lines for a pair of documents.
+     *
+     * <p>Named per side, because a footnote in the returned file and a footnote in yours are
+     * different problems: one is content that was never checked, the other is content that was
+     * never checked on the side the user thinks of as settled.
+     */
+    private List<String> noticesOf(
+            DocumentSource left, DocumentTree leftTree, DocumentSource right, DocumentTree rightTree) {
+        List<String> notices = new java.util.ArrayList<>();
+        if (!leftTree.unsupportedConstructs().isEmpty()) {
+            notices.add("\"" + left.label() + "\" contains "
+                    + String.join(", ", leftTree.unsupportedConstructs())
+                    + ", which are not compared.");
+        }
+        if (!rightTree.unsupportedConstructs().isEmpty()) {
+            notices.add("\"" + right.label() + "\" contains "
+                    + String.join(", ", rightTree.unsupportedConstructs())
+                    + ", which are not compared.");
+        }
+        return notices;
     }
 
     private Comparison compareSpreadsheets(DocumentSource left, DocumentSource right)

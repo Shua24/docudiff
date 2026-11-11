@@ -45,4 +45,26 @@ final class DocxEditor {
         }
         paragraph.createRun().setText(newText);
     }
+
+    /**
+     * Replaces one word in place, without appending anything.
+     *
+     * <p>Used for the demo's third version: calling {@link #reword} twice appends the same new
+     * paragraph twice, so the report legitimately showed the same added block on two lines and
+     * looked like a rendering bug.
+     */
+    static byte[] changeWord(byte[] original, String from, String to) throws Exception {
+        try (XWPFDocument document = new XWPFDocument(new ByteArrayInputStream(original));
+             ByteArrayOutputStream buffer = new ByteArrayOutputStream()) {
+            for (XWPFParagraph paragraph : document.getParagraphs()) {
+                String text = paragraph.getText();
+                if (text.contains(from)) {
+                    replaceParagraphText(paragraph, text.replace(from, to));
+                    break;
+                }
+            }
+            document.write(buffer);
+            return buffer.toByteArray();
+        }
+    }
 }

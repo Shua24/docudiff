@@ -52,9 +52,85 @@ public final class CaptureHarness extends Application {
                 Platform.runLater(() -> DiffLegend.showHelpDialog(stage));
                 System.out.println("HARNESS help dialog opened");
             }
+            if (Boolean.getBoolean("dump.ui")) {
+                // Long enough for the background comparison to finish: the diff is computed off
+                // the JavaFX thread, and dumping 800ms in caught a still-running task on the first
+                // open, which reads as "the header never updated".
+                sleep(3000);
+                Platform.runLater(() -> dumpUi(scene));
+            }
+            if (Boolean.getBoolean("show.deleted")) {
+                sleep(1200);
+                Platform.runLater(() -> toggleShowDeleted(scene));
+            }
             sleep(holdSeconds * 1000L);
             Platform.exit();
         }).start();
+    }
+
+    /**
+     * Prints the state of the widgets added in v1: the comparison header, the export button, the
+     * unsupported-construct notices, the toolbar's More menu, and the version list.
+     *
+     * <p>Values come from the widgets, not from a screenshot: an image pass reports a plausible
+     * string, and these are exactly the strings worth being sure about.
+     */
+    private static void dumpUi(Scene scene) {
+        for (Node node : scene.getRoot().lookupAll(".comparison-sides")) {
+            if (node instanceof javafx.scene.control.Label label) {
+                System.out.println("HARNESS sides = " + label.getText());
+            }
+        }
+        for (Node node : scene.getRoot().lookupAll(".diff-notice")) {
+            if (node instanceof javafx.scene.control.Label label) {
+                System.out.println("HARNESS notice = " + label.getText());
+            }
+        }
+        for (Node node : scene.getRoot().lookupAll(".button")) {
+            if (node instanceof javafx.scene.control.Button button
+                    && button.getText() != null
+                    && button.getText().startsWith("Export")) {
+                System.out.println("HARNESS export button = " + button.getText()
+                        + " enabled=" + !button.isDisabled());
+            }
+            if (node instanceof javafx.scene.control.MenuButton menuButton
+                    && "More".equals(menuButton.getText())) {
+                System.out.println("HARNESS More items = " + menuButton.getItems().stream()
+                        .map(javafx.scene.control.MenuItem::getText)
+                        .filter(java.util.Objects::nonNull)
+                        .toList());
+            }
+        }
+        Node versionNode = scene.lookup(".list-view");
+        for (Node node : scene.getRoot().lookupAll(".list-view")) {
+            if (node instanceof ListView<?> listView) {
+                System.out.println("HARNESS list(" + listView.getItems().size() + ") = "
+                        + listView.getItems());
+            }
+        }
+        if (versionNode != null) {
+            System.out.println("HARNESS first list-view found");
+        }
+        for (Node node : scene.getRoot().lookupAll(".check-box")) {
+            if (node instanceof javafx.scene.control.CheckBox checkBox) {
+                System.out.println("HARNESS checkbox = \"" + checkBox.getText()
+                        + "\" selected=" + checkBox.isSelected());
+            }
+        }
+    }
+
+    private static void toggleShowDeleted(Scene scene) {
+        for (Node node : scene.getRoot().lookupAll(".check-box")) {
+            if (node instanceof javafx.scene.control.CheckBox checkBox
+                    && checkBox.getText() != null
+                    && checkBox.getText().contains("Show deleted")) {
+                checkBox.fire();
+                System.out.println("HARNESS Show deleted -> " + checkBox.isSelected());
+                dumpUi(scene);
+                return;
+            }
+        }
+        System.out.println("HARNESS Show deleted checkbox not found");
     }
 
     /** Types into the diff search box, so a screenshot can show highlighting and the note. */
