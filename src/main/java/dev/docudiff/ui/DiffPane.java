@@ -5,6 +5,7 @@ import dev.docudiff.diff.BlockDiff;
 import dev.docudiff.diff.DiffStatus;
 import dev.docudiff.diff.DocumentDiff;
 import dev.docudiff.diff.RowDiff;
+import dev.docudiff.diff.SheetDiff;
 import dev.docudiff.diff.WordMark;
 import dev.docudiff.diff.WordMarkKind;
 import dev.docudiff.search.SearchHighlighter;
@@ -106,7 +107,7 @@ public final class DiffPane extends ScrollPane {
             return;
         }
         List<Node> nodes = comparison.isSpreadsheet()
-                ? renderSheet(comparison.rowDiffs(), comparison.sheetName())
+                ? renderSheets(comparison.sheetDiffs())
                 : renderDocument(comparison.documentDiff());
         blocks.getChildren().setAll(nodes);
         matchCountConsumer.accept(matchSpots.size());
@@ -174,11 +175,28 @@ public final class DiffPane extends ScrollPane {
         }
     }
 
-    private List<Node> renderSheet(List<RowDiff> rowDiffs, String sheetName) {
-        // While a search is active every row is rendered, so a keyword in an untouched row can be
-        // found and reported as unchanged. With no query, only changed rows are shown.
-        return List.of(SheetDiffView.render(rowDiffs, sheetName, query, currentMatch,
-                !query.isEmpty(), matchSpots));
+    /**
+     * Renders every sheet that differs, in workbook order.
+     *
+     * <p>While a search is active every sheet is rendered, including unchanged ones, so a keyword
+     * in an untouched row can be found and reported as unchanged. With no query, only sheets that
+     * actually differ are shown — a workbook with ten tabs and one change should not make the
+     * reader scroll past nine identical grids.
+     */
+    private List<Node> renderSheets(List<SheetDiff> sheetDiffs) {
+        List<Node> nodes = new ArrayList<>();
+        boolean searching = !query.isEmpty();
+        for (SheetDiff sheetDiff : sheetDiffs) {
+            if (!sheetDiff.isChanged() && !searching) {
+                continue;
+            }
+            nodes.add(SheetDiffView.render(
+                    sheetDiff, query, currentMatch, searching, matchSpots));
+        }
+        if (nodes.isEmpty()) {
+            nodes.add(UiParts.muted("The two workbooks are identical."));
+        }
+        return nodes;
     }
 
     static String styleFor(WordMarkKind kind) {

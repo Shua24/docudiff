@@ -188,9 +188,29 @@ struck through in red and its new value in green, side by side — `10 → 12` �
 does not tell you what it used to be. A new row is green, a deleted row is red, and the legend
 under the grid describes cells rather than paragraphs.
 
+**Every sheet is compared, not just the first.** Sheets are matched by **name**, so inserting a new
+tab does not make every later tab look rewritten. Only sheets that actually differ are shown; a
+workbook with ten tabs and one change shows one grid, not ten. A sheet that exists on only one side
+is reported as a whole sheet added or removed.
+
+**Cell formatting is compared too.** Bolding a cell or changing its fill is a real change even when
+no text moves, and it is reported underneath the row just as document formatting is reported under
+a paragraph:
+
+```text
+formatting: A bold applied
+formatting: B fill changed to FFFF00
+```
+
+A row whose only difference is presentation still counts as changed, so it is never silently
+skipped.
+
 A cell holding a formula is compared by its **formula text**, so rewriting `=SUM(A1:A5)` as
 `=A1+A2+A3+A4+A5` is reported as a change even when both produce the same number. The displayed
 value is shown as context.
+
+Number formatting is preserved: a cell formatted as currency or to two decimals renders as the
+sheet shows it (`2.50`, not `2.5`), so money columns do not read as spurious changes.
 
 **Markdown.** Compared line by line, like a programmer's diff, with changed words marked.
 
@@ -451,6 +471,18 @@ skips `UNCHANGED` rows normally, which would make a keyword in an untouched row 
 as a broken search. The summary line switches to `showing all N row(s) · search active` so the count
 never lies about which mode it is in.
 
+**15. A formatting-only row change must promote the status to `MODIFIED`.** `SheetRowAligner` aligns
+by content and returns `UNCHANGED` for a row whose text is identical — but `SheetDiffView` and
+`SheetDiffView.isChanged()` skip `UNCHANGED` rows, so a bold-only or fill-only change would be
+dropped silently. `WorkbookDiffer.attachFormatting` attaches the annotations *and* promotes the
+status. `RowDiff.isChanged()` is the single predicate the view must ask; do not go back to comparing
+`status() != UNCHANGED`, which was the bug.
+
+**16. Never read `sheets().get(0)`.** Comparing workbooks means matching every sheet by name via
+`WorkbookDiffer`. The original comparer took the first sheet of each workbook and reported a
+workbook with a change on tab two as identical — a confident wrong answer rather than a visible
+gap.
+
 ### Adding a new document format
 
 1. Write a `FooExtractor` that produces a `DocumentTree` (or a `WorkbookModel` for tabular formats).
@@ -472,15 +504,38 @@ never lies about which mode it is in.
 - Code that can take seconds (LibreOffice, diffing large files) runs on a background thread via
   `runOffThread`; the JavaFX thread is never blocked.
 
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on every push to `main` and `dev`, on pull requests, and on
+demand.
+
+**`test`** — a matrix over `ubuntu-latest` and `windows-latest`, JDK 25 (Temurin), Maven cache.
+LibreOffice is installed on both, because the renderer tests skip themselves via `assumeTrue` when
+it is missing, and a skipped test is a green build that proves nothing. On Linux the suite runs
+under `xvfb-run`: JavaFX cannot start its toolkit without a display and fails with
+`Unable to open DISPLAY`.
+
+**`package`** — builds the jar, stages it with its runtime dependencies, and produces an app image
+with `jpackage` on each OS. No cross-compilation: the Windows image is built on Windows.
+
+**Verifying a package is the part that is easy to get wrong.** `jpackage` creates the output
+directory even when it fails — a failed run on this machine left `target/dist/Docudiff` present
+with **zero files** in it — so "the directory is not empty" proves nothing. The workflow checks for
+the launcher binary itself (`bin/Docudiff` on Linux, `Docudiff.exe` on Windows) and fails the job
+if it is absent.
+
 ### Known gaps in the build
 
 - `jpackage --type app-image` **fails on this machine**:
   `jlink failed with: Error: This JDK does not support linking from the current run-time image`.
   The openSUSE JDK package ships no `jmods/`. Fix with
-  `sudo zypper install java-25-openjdk-jmods` if an app image is needed. `javafx:run` is
-  unaffected.
-- Note that `jpackage` prints its bundler error but **exits 0**. Any CI step gating on the exit
-  status will pass on a package that was never built — check the output directory instead.
+  `sudo zypper install java-25-openjdk-jmods` if an app image is needed locally. `javafx:run` is
+  unaffected, and CI uses Temurin, which ships `jmods`.
+- Measured on this JDK, that failure **exits 1**, not 0 — but the output directory is created
+  anyway, so neither the exit status nor the directory's existence is a reliable signal. Check for
+  the launcher binary.
+- The Windows job has not been run yet. The workflow is written for it, but until it executes once
+  on `windows-latest`, Windows support is unverified rather than working.
 
 ### Not implemented yet
 
@@ -502,6 +557,23 @@ The following were planned and are **absent** from the code. Do not document the
 
 ## License
 
-No `LICENSE` file exists in this repository, and no license has been declared. Until one is added,
-this code is under default copyright — it is not free to reuse. Add a `LICENSE` file before
-publishing.
+BSD 3-Clause. See [LICENSE](LICENSE).
+
+Chosen because every runtime dependency is compatible with it:
+
+| Dependency | License |
+|---|---|
+| JGit | EDL v1.0 / BSD-3-Clause |
+| Apache POI | Apache 2.0 |
+| PDFBox | Apache 2.0 |
+| log4j-core | Apache 2.0 |
+| java-diff-utils | Apache 2.0 |
+| commonmark-java | BSD-2-Clause |
+| JavaFX | GPLv2 + Classpath Exception |
+
+Two notes for anyone tempted to relicense. **GPLv2 is not an option here**: Apache 2.0 is
+incompatible with GPLv2 — the FSF and the ASF both say so — and four dependencies above are
+Apache 2.0, so the combination is undistributable. Apache 2.0 itself is a bad fit for the same
+reason in reverse: the project could be Apache-licensed, but then it could not be combined with
+GPLv2 code, and JavaFX's Classpath Exception is what keeps that door open. BSD-3 has no conflict
+anywhere in the stack, which is why it was picked.

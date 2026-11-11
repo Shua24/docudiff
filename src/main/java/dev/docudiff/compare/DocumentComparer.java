@@ -2,10 +2,9 @@ package dev.docudiff.compare;
 
 import dev.docudiff.diff.DocumentDiff;
 import dev.docudiff.diff.DocumentDiffer;
-import dev.docudiff.diff.RowDiff;
-import dev.docudiff.diff.SheetRowAligner;
+import dev.docudiff.diff.SheetDiff;
+import dev.docudiff.diff.WorkbookDiffer;
 import dev.docudiff.document.DocumentTree;
-import dev.docudiff.document.SheetModel;
 import dev.docudiff.document.WorkbookModel;
 import dev.docudiff.extract.DocxExtractor;
 import dev.docudiff.extract.MarkdownExtractor;
@@ -47,19 +46,15 @@ public final class DocumentComparer {
         DocumentTree leftTree = treeOf(left);
         DocumentTree rightTree = treeOf(right);
         DocumentDiff documentDiff = new DocumentDiffer().diff(leftTree, rightTree);
-        return new Comparison(left.label(), right.label(), documentDiff, null, null);
+        return new Comparison(left.label(), right.label(), documentDiff, null);
     }
 
     private Comparison compareSpreadsheets(DocumentSource left, DocumentSource right)
             throws Exception {
         WorkbookModel leftWorkbook = new XlsxExtractor().extract(left.bytes());
         WorkbookModel rightWorkbook = new XlsxExtractor().extract(right.bytes());
-        SheetModel leftSheet = leftWorkbook.sheets().get(0);
-        SheetModel rightSheet = rightWorkbook.sheets().get(0);
-        List<RowDiff> rowDiffs = new SheetRowAligner().align(
-                leftSheet.rows(), rightSheet.rows());
-        // The newer version names the sheet: that is the one the reader is moving toward.
-        return new Comparison(left.label(), right.label(), null, rowDiffs, rightSheet.name());
+        List<SheetDiff> sheetDiffs = new WorkbookDiffer().diff(leftWorkbook, rightWorkbook);
+        return new Comparison(left.label(), right.label(), null, sheetDiffs);
     }
 
     private DocumentTree treeOf(DocumentSource source) throws Exception {

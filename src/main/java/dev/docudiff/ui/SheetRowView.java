@@ -1,5 +1,6 @@
 package dev.docudiff.ui;
 
+import dev.docudiff.diff.CellFormatChange;
 import dev.docudiff.diff.DiffStatus;
 import dev.docudiff.diff.RowDiff;
 import dev.docudiff.document.SheetCell;
@@ -13,6 +14,7 @@ import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.VBox;
 
 import java.util.HashSet;
 import java.util.List;
@@ -61,7 +63,7 @@ final class SheetRowView {
         line.add(number, 1, 0);
 
         Set<Integer> changedColumns = new HashSet<>(rowDiff.changedColumns());
-        boolean unchanged = rowDiff.status() == DiffStatus.UNCHANGED;
+        boolean unchanged = !rowDiff.isChanged();
 
         for (int column = 1; column <= columnCount; column++) {
             // Every match appends to matchSpots, so its size is always the next match's index.
@@ -70,7 +72,18 @@ final class SheetRowView {
             line.add(cellNode, column + 1, 0);
             line.getColumnConstraints().add(tabularColumn());
         }
-        return line;
+
+        if (rowDiff.formatChanges().isEmpty()) {
+            return line;
+        }
+        // A formatting-only change has no cell value to point at, so it is reported underneath the
+        // row, exactly as the document diff reports "formatting: bold applied" under a paragraph.
+        VBox withNotes = new VBox(2, line);
+        for (CellFormatChange change : rowDiff.formatChanges()) {
+            withNotes.getChildren().add(UiParts.muted("formatting: "
+                    + SheetDiffView.columnName(change.column()) + " " + change.description()));
+        }
+        return withNotes;
     }
 
     /** One cell. For a changed cell the old value is shown struck through, then the new value. */
