@@ -52,6 +52,8 @@ public final class MainWindow extends StackPane implements BackgroundRunner {
     private final VersionListPane versionListPane;
     private final DocumentViewPane documentViewPane = new DocumentViewPane();
     private final DiffPane diffPane = new DiffPane();
+    private final javafx.scene.layout.StackPane legendHolder =
+            new javafx.scene.layout.StackPane();
     private final Label statusLabel = UiParts.muted("Ready.");
     private final DocumentActions actions;
 
@@ -73,6 +75,7 @@ public final class MainWindow extends StackPane implements BackgroundRunner {
         content.setBottom(buildToolbar());
         content.setPadding(new Insets(8));
         libraryPane.setPrefWidth(240);
+        legendHolder.getChildren().setAll(DiffLegend.strip());
 
         getChildren().addAll(content, busyOverlay);
     }
@@ -81,7 +84,7 @@ public final class MainWindow extends StackPane implements BackgroundRunner {
         TabPane tabPane = new TabPane();
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
 
-        VBox diffTabContent = new VBox(diffPane, DiffLegend.strip());
+        VBox diffTabContent = new VBox(diffPane, legendHolder);
         VBox.setVgrow(diffPane, Priority.ALWAYS);
 
         tabPane.getTabs().addAll(
@@ -244,12 +247,14 @@ public final class MainWindow extends StackPane implements BackgroundRunner {
     private void showComparison(ComparisonService.Comparison comparison) {
         DocumentDiff documentDiff = comparison.documentDiff();
         if (documentDiff != null) {
+            legendHolder.getChildren().setAll(DiffLegend.strip());
             diffPane.showDocumentDiff(documentDiff);
             setStatus(documentDiff.changedBlockCount() + " changed block(s).");
             return;
         }
+        legendHolder.getChildren().setAll(DiffLegend.stripForSheet());
         List<RowDiff> rowDiffs = comparison.rowDiffs();
-        diffPane.showRowDiffs(rowDiffs);
+        diffPane.showRowDiffs(rowDiffs, comparison.sheetName());
         long changedRows = rowDiffs.stream()
                 .filter(rowDiff -> rowDiff.status() != dev.docudiff.diff.DiffStatus.UNCHANGED)
                 .count();

@@ -236,3 +236,98 @@
 .help-button:hover {
     -fx-background-color: #e8f2f6;
 }
+
+/* ── Spreadsheet diff grid ────────────────────────────────────────────────── */
+
+.sheet-diff {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #dbe7ec;
+    -fx-border-radius: 4px;
+}
+
+.sheet-diff-summary {
+    -fx-background-color: #eef5f8;
+    -fx-border-color: #d9e7ed;
+    -fx-border-width: 0 0 1 0;
+}
+
+.sheet-diff-title {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #1b3a4b;
+}
+
+.sheet-diff-ruler {
+    -fx-background-color: #f4f9fb;
+    -fx-border-color: #e3edf1;
+    -fx-border-width: 0 0 1 0;
+}
+
+.sheet-column-heading {
+    -fx-font-size: 10.5px;
+    -fx-text-fill: #6b7d87;
+    -fx-font-weight: bold;
+}
+
+.sheet-diff-row {
+    -fx-border-color: #eef3f6;
+    -fx-border-width: 0 0 1 0;
+}
+
+.sheet-diff-row.diff-modified {
+    -fx-background-color: #fffaf0;
+}
+
+.sheet-diff-row.diff-added {
+    -fx-background-color: #f1faf3;
+}
+
+.sheet-diff-row.diff-removed {
+    -fx-background-color: #fdf3f3;
+}
+
+.sheet-row-marker {
+    -fx-font-family: "Liberation Mono", monospace;
+    -fx-font-size: 11px;
+    -fx-text-fill: #6b7d87;
+}
+
+.sheet-row-number {
+    -fx-font-size: 10.5px;
+    -fx-text-fill: #8a9aa3;
+}
+
+.sheet-cell {
+    -fx-padding: 1px 4px;
+}
+
+.sheet-cell-changed {
+    -fx-background-color: #fdf0d8;
+    -fx-background-radius: 3px;
+}
+
+.sheet-value {
+    -fx-font-size: 12px;
+    -fx-text-fill: #24343d;
+}
+
+.sheet-value-removed {
+    -fx-text-fill: #8f2f2f;
+    -fx-strikethrough: true;
+}
+
+.sheet-value-added {
+    -fx-text-fill: #1e6b3a;
+    -fx-font-weight: bold;
+}
+
+.sheet-arrow {
+    -fx-text-fill: #8a9aa3;
+    -fx-font-size: 11px;
+}
+
+.sheet-cell-formula {
+    -fx-font-family: "Liberation Mono", monospace;
+    -fx-font-size: 10px;
+    -fx-text-fill: #5b7078;
+}

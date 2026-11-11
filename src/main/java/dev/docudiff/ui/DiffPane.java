@@ -48,31 +48,17 @@ public final class DiffPane extends ScrollPane {
         blocks.getChildren().setAll(nodes);
     }
 
+    /**
+     * Shows the spreadsheet diff as a cell grid. The sheet name is passed through so the reader
+     * knows which sheet they are looking at when a workbook has several.
+     */
+    public void showRowDiffs(List<RowDiff> rowDiffs, String sheetName) {
+        blocks.getChildren().setAll(SheetDiffView.render(rowDiffs, sheetName));
+    }
+
+    /** Kept for callers that have no sheet name; renders the unnamed sheet. */
     public void showRowDiffs(List<RowDiff> rowDiffs) {
-        List<javafx.scene.Node> nodes = new ArrayList<>();
-        for (RowDiff rowDiff : rowDiffs) {
-            String text = switch (rowDiff.status()) {
-                case ADDED -> "+ row " + rowDiff.right().rowNumber()
-                        + ": " + rowDiff.right().signature().replace('\u001f', ' ');
-                case REMOVED -> "- row " + rowDiff.left().rowNumber()
-                        + ": " + rowDiff.left().signature().replace('\u001f', ' ');
-                case MODIFIED -> "~ row " + rowDiff.right().rowNumber()
-                        + " columns " + rowDiff.changedColumns();
-                case UNCHANGED -> null;
-            };
-            if (text != null) {
-                Text line = new Text(text);
-                TextFlow flow = new TextFlow(line);
-                flow.getStyleClass().add("diff-block");
-                flow.getStyleClass().add(styleClassFor(rowDiff.status().name().toLowerCase()));
-                nodes.add(flow);
-            }
-        }
-        if (nodes.isEmpty()) {
-            blocks.getChildren().setAll(UiParts.muted("The two sheets are identical."));
-            return;
-        }
-        blocks.getChildren().setAll(nodes);
+        showRowDiffs(rowDiffs, null);
     }
 
     private javafx.scene.Node renderBlock(

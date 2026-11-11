@@ -141,9 +141,15 @@ a useful diff and a useless one:
 - Insert one row at the top of a 500-row sheet and Docudiff shows **one inserted row**.
 - A program that compared row 1 to row 1 would report **501 changed rows**.
 
-Inside a modified row, the changed columns are named. A cell holding a formula is compared by its
-**formula text**, so rewriting `=SUM(A1:A5)` as `=A1+A2+A3+A4+A5` is reported as a change even
-when both produce the same number. The displayed value is shown as context.
+The diff is shown as a **cell grid**, not as a list of row numbers: column letters across the top,
+row numbers down the left, and only the changed rows listed. A changed cell shows its old value
+struck through in red and its new value in green, side by side — `10 → 12` — because a bare `12`
+does not tell you what it used to be. A new row is green, a deleted row is red, and the legend
+under the grid describes cells rather than paragraphs.
+
+A cell holding a formula is compared by its **formula text**, so rewriting `=SUM(A1:A5)` as
+`=A1+A2+A3+A4+A5` is reported as a change even when both produce the same number. The displayed
+value is shown as context.
 
 **Markdown.** Compared line by line, like a programmer's diff, with changed words marked.
 

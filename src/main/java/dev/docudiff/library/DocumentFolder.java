@@ -24,6 +24,12 @@ public final class DocumentFolder {
         return folderPath;
     }
 
+    /** The document name, so a folder's identity is legible in logs and list cells. */
+    @Override
+    public String toString() {
+        return documentName();
+    }
+
     public String documentName() {
         return folderPath.getFileName().toString();
     }

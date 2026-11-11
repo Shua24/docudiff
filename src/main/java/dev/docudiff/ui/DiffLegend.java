@@ -32,8 +32,9 @@ public final class DiffLegend {
     }
 
     /**
-     * The always-visible legend strip. Deliberately terse — one line per concept, with the same
-     * colours the diff itself uses, so it reads as a key rather than as instructions.
+     * The always-visible legend strip for a document diff. Deliberately terse — one line per
+     * concept, with the same colours the diff itself uses, so it reads as a key rather than as
+     * instructions.
      */
     public static Region strip() {
         FlowPane strip = new FlowPane(18, 6);
@@ -59,6 +60,40 @@ public final class DiffLegend {
         strip.getChildren().add(wordFlow);
 
         Label note = new Label("“formatting:” = only the look changed, not the words");
+        note.getStyleClass().add("legend-note");
+        strip.getChildren().add(note);
+
+        return strip;
+    }
+
+    /**
+     * The legend for a spreadsheet diff. A cell grid has no paragraphs and no word marks, so the
+     * document legend would describe things that are not on screen.
+     */
+    public static Region stripForSheet() {
+        FlowPane strip = new FlowPane(18, 6);
+        strip.getStyleClass().add("legend-strip");
+        strip.setPadding(new Insets(8, 12, 8, 12));
+        strip.setAlignment(Pos.CENTER_LEFT);
+
+        Label heading = new Label("Reading this diff:");
+        heading.getStyleClass().add("legend-heading");
+
+        strip.getChildren().addAll(
+                heading,
+                swatchEntry("diff-modified", "warm row = a cell changed"),
+                swatchEntry("diff-added", "green row = new row"),
+                swatchEntry("diff-removed", "red row = deleted row"));
+
+        Text oldValue = new Text("old value");
+        oldValue.getStyleClass().add("sheet-value-removed");
+        Text newValue = new Text("new value");
+        newValue.getStyleClass().add("sheet-value-added");
+        TextFlow valueFlow = new TextFlow(oldValue, new Text("  →  "), newValue);
+        valueFlow.setPadding(new Insets(2, 0, 0, 0));
+        strip.getChildren().add(valueFlow);
+
+        Label note = new Label("rows are matched by content, so one inserted row is one change");
         note.getStyleClass().add("legend-note");
         strip.getChildren().add(note);
 

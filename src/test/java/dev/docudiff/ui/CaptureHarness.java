@@ -53,13 +53,25 @@ public final class CaptureHarness extends Application {
     }
 
     private static void selectFirstDocument(Scene scene) {
+        String wanted = System.getProperty("select.doc");
         Node node = scene.lookup(".library-pane .list-view");
-        if (node instanceof ListView<?> listView && !listView.getItems().isEmpty()) {
-            listView.getSelectionModel().select(0);
-            System.out.println("HARNESS selected: " + listView.getItems().get(0));
-        } else {
+        if (!(node instanceof ListView<?> listView) || listView.getItems().isEmpty()) {
             System.out.println("HARNESS no document found in library");
+            return;
         }
+        if (wanted != null) {
+            for (int index = 0; index < listView.getItems().size(); index++) {
+                Object item = listView.getItems().get(index);
+                if (item != null && item.toString().contains(wanted)) {
+                    listView.getSelectionModel().select(index);
+                    System.out.println("HARNESS selected index " + index + " for " + wanted);
+                    return;
+                }
+            }
+            System.out.println("HARNESS no match for " + wanted + "; selecting first");
+        }
+        listView.getSelectionModel().select(0);
+        System.out.println("HARNESS selected: " + listView.getItems().get(0));
     }
 
     private static void selectTab(Scene scene, String tabName) {

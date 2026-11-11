@@ -27,7 +27,7 @@ import java.util.List;
 final class ComparisonService {
 
     /** Either a document diff or spreadsheet row diffs; exactly one is non-null. */
-    record Comparison(DocumentDiff documentDiff, List<RowDiff> rowDiffs) {
+    record Comparison(DocumentDiff documentDiff, List<RowDiff> rowDiffs, String sheetName) {
     }
 
     Comparison compare(
@@ -43,16 +43,18 @@ final class ComparisonService {
         if (format == DocumentFormat.XLSX) {
             WorkbookModel leftWorkbook = new XlsxExtractor().extract(leftBytes);
             WorkbookModel rightWorkbook = new XlsxExtractor().extract(rightBytes);
+            dev.docudiff.document.SheetModel leftSheet = leftWorkbook.sheets().get(0);
+            dev.docudiff.document.SheetModel rightSheet = rightWorkbook.sheets().get(0);
             List<RowDiff> rowDiffs = new SheetRowAligner().align(
-                    leftWorkbook.sheets().get(0).rows(),
-                    rightWorkbook.sheets().get(0).rows());
-            return new Comparison(null, rowDiffs);
+                    leftSheet.rows(), rightSheet.rows());
+            // Name the sheet from the newer version: that is the one the reader is moving toward.
+            return new Comparison(null, rowDiffs, rightSheet.name());
         }
 
         DocumentTree leftTree = treeOf(format, leftBytes);
         DocumentTree rightTree = treeOf(format, rightBytes);
         DocumentDiff documentDiff = new DocumentDiffer().diff(leftTree, rightTree);
-        return new Comparison(documentDiff, null);
+        return new Comparison(documentDiff, null, null);
     }
 
     private DocumentTree treeOf(DocumentFormat format, byte[] bytes) throws Exception {
