@@ -19,7 +19,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # ubuntu-latest is 26.04 (resolute) and the Ubuntu archive mirror does not serve it, so
+        # apt hangs on every fetch. Pin the LTS that the mirror actually carries.
+        os: [ubuntu-24.04, windows-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -38,11 +40,12 @@ jobs:
         if: runner.os == 'Linux'
         timeout-minutes: 10
         run: |
-          # unattended-upgrades holds the dpkg lock on a fresh runner and apt waits on it
-          # indefinitely instead of failing. Stop it, and cap the wait so a lock hang is an
-          # error in ten minutes rather than a silent six-hour stall.
+          # ubuntu-latest moved to 26.04 (resolute) and the Ubuntu archive mirror does not serve
+          # it: every fetch prints "Ign:" and times out, so the step hung for 25+ minutes on two
+          # consecutive runs. The matrix pins ubuntu-24.04 for that reason. The lock timeout and
+          # the step timeout stay as a backstop so a mirror problem fails in minutes, not hours.
           sudo systemctl stop unattended-upgrades || true
-          sudo apt-get -o DPkg::Lock::Timeout=60 update
+          sudo apt-get -o DPkg::Lock::Timeout=60 -o Acquire::Retries=3 update
           sudo apt-get -o DPkg::Lock::Timeout=60 install -y --no-install-recommends \
             libreoffice-writer libreoffice-calc xvfb
 
