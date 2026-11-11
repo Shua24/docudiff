@@ -2,12 +2,9 @@ package dev.docudiff.versioning;
 
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.eclipse.jgit.lib.CommitBuilder;
 import org.eclipse.jgit.lib.ObjectId;
-import org.eclipse.jgit.lib.ObjectInserter;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.lib.Ref;
-import org.eclipse.jgit.lib.RefUpdate;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevWalk;
@@ -52,29 +49,15 @@ public final class VersionRepository {
     }
 
     public WorkingFileState probeWorkingFile(String fileName) throws IOException, GitAPIException {
-        Path workingPath = repositoryDirectory.resolve(fileName);
-        if (!Files.exists(workingPath)) {
-            return WorkingFileState.MISSING;
-        }
-        try (Git git = Git.open(repositoryDirectory.toFile())) {
-            Repository repository = git.getRepository();
-            RevCommit headCommit = RevisionReader.headCommit(repository);
-            if (headCommit == null) {
-                return WorkingFileState.MODIFIED;
-            }
-            byte[] committedBytes = RevisionReader.bytesAt(repository, headCommit, fileName);
-            if (committedBytes == null) {
-                return WorkingFileState.MODIFIED;
-            }
-            byte[] workingBytes = Files.readAllBytes(workingPath);
-            boolean identical = java.util.Arrays.equals(committedBytes, workingBytes);
-            return identical ? WorkingFileState.CLEAN : WorkingFileState.MODIFIED;
+        try (Git git = openGit()) {
+            return WorkingCopy.probe(
+                    git.getRepository(), repositoryDirectory.resolve(fileName));
         }
     }
 
     public String snapshot(String documentName, String snapshotName)
             throws IOException, GitAPIException {
-        try (Git git = Git.open(repositoryDirectory.toFile())) {
+        try (Git git = openGit()) {
             git.add().addFilepattern(".").call();
             RevCommit commit = git.commit()
                     .setMessage(snapshotName)
@@ -86,7 +69,9 @@ public final class VersionRepository {
     }
 
     public List<VersionEntry> listVersions() throws IOException, GitAPIException {
-        try (Git git = Git.open(repositoryDirectory.toFile())) {
+        try (Git git = openGit()) {
+            Repository repository = git.getRepository();
+            java.util.Set<String> deletedCommitIds = VersionTombstones.deletedCommitIds(repository);
             List<VersionEntry> versions = new ArrayList<>();
             // A freshly initialised repository has no HEAD; git.log() throws NoHeadException
             // rather than returning nothing, so an empty document would crash the version list.
@@ -98,9 +83,34 @@ public final class VersionRepository {
             }
             for (RevCommit commit : commits) {
                 long timestamp = commit.getCommitTime() * 1000L;
-                versions.add(new VersionEntry(commit.getName(), commit.getFullMessage(), timestamp));
+                versions.add(new VersionEntry(commit.getName(), commit.getFullMessage(), timestamp,
+                        deletedCommitIds.contains(commit.getName())));
             }
             return versions;
+        }
+    }
+
+    /** The commit ids every branch points at, so a deleted branch head can still be listed. */
+    public java.util.Set<String> branchHeadCommitIds() throws IOException {
+        try (Git git = openGit()) {
+            return VersionTombstones.branchHeadCommitIds(git.getRepository());
+        }
+    }
+
+    /**
+     * Marks a version deleted. The commit is kept — see {@link VersionTombstones} for why history
+     * is not rewritten — and the version list stops showing it until it is restored.
+     */
+    public void deleteSnapshot(String commitId) throws IOException {
+        try (Git git = openGit()) {
+            VersionTombstones.markDeleted(git.getRepository(), commitId);
+        }
+    }
+
+    /** Removes a version's deletion marker, so it appears in the version list again. */
+    public void restoreSnapshot(String commitId) throws IOException {
+        try (Git git = openGit()) {
+            VersionTombstones.restore(git.getRepository(), commitId);
         }
     }
 
@@ -110,7 +120,7 @@ public final class VersionRepository {
     }
 
     public List<String> listBranches() throws IOException, GitAPIException {
-        try (Git git = Git.open(repositoryDirectory.toFile())) {
+        try (Git git = openGit()) {
             List<String> branchNames = new ArrayList<>();
             for (Ref ref : git.branchList().call()) {
                 branchNames.add(Repository.shortenRefName(ref.getName()));
@@ -122,19 +132,19 @@ public final class VersionRepository {
 
     /** The branch currently checked out in this repository. */
     public String currentBranch() throws IOException {
-        try (Git git = Git.open(repositoryDirectory.toFile())) {
+        try (Git git = openGit()) {
             return git.getRepository().getBranch();
         }
     }
 
     public void createBranch(String branchName) throws IOException, GitAPIException {
-        try (Git git = Git.open(repositoryDirectory.toFile())) {
+        try (Git git = openGit()) {
             git.branchCreate().setName(branchName).call();
         }
     }
 
     public void checkoutBranch(String branchName) throws IOException, GitAPIException {
-        try (Git git = Git.open(repositoryDirectory.toFile())) {
+        try (Git git = openGit()) {
             String currentBranch = git.getRepository().getBranch();
             if (currentBranch.equals(branchName)) {
                 return;
@@ -155,7 +165,7 @@ public final class VersionRepository {
      * the diff engine use to look at an arbitrary version.
      */
     public byte[] bytesOfVersion(String fileName, String commitId) throws IOException {
-        try (Git git = Git.open(repositoryDirectory.toFile())) {
+        try (Git git = openGit()) {
             Repository repository = git.getRepository();
             try (RevWalk walk = new RevWalk(repository)) {
                 RevCommit commit = walk.parseCommit(ObjectId.fromString(commitId));
@@ -182,56 +192,61 @@ public final class VersionRepository {
         Files.write(repositoryDirectory.resolve(fileName), content);
     }
 
+    /** A branch that is checked out cannot be deleted, which is git's own rule. */
+    public void deleteBranch(String branchName) throws IOException, GitAPIException {
+        try (Git git = openGit()) {
+            String currentBranch = git.getRepository().getBranch();
+            if (currentBranch.equals(branchName)) {
+                throw new IllegalStateException(
+                        "Cannot delete \"" + branchName + "\": it is the branch you are on. "
+                                + "Switch to another branch first.");
+            }
+            if (!listBranches().contains(branchName)) {
+                throw new IllegalStateException("There is no branch named \"" + branchName + "\".");
+            }
+            // Forced on purpose: the branch may hold versions that no other branch reaches. The
+            // confirmation dialog says so, and the versions stay in the repository either way.
+            git.branchDelete().setBranchNames(branchName).setForce(true).call();
+        }
+    }
+
+    /**
+     * Puts the working file back to the current branch head, throwing away external edits.
+     *
+     * <p>This is the only operation that destroys uncommitted content, so it is deliberately not
+     * reachable from anywhere else. A following snapshot cannot recover the discarded bytes; the
+     * last snapshot can.
+     */
+    public void discardWorkingChanges(String fileName) throws IOException, GitAPIException {
+        try (Git git = openGit()) {
+            WorkingCopy.restore(git.getRepository(), repositoryDirectory.resolve(fileName));
+        }
+    }
+
     /**
      * Merges by taking the source branch's tree wholesale and recording both heads as parents.
      *
-     * <p>Do NOT replace this with {@code git.merge().include(...)}. Measured behaviour of that
-     * call on a conflicting document: returns {@code MergeStatus.Conflicting} without throwing,
-     * writes {@code <<<<<<< HEAD … ======= … >>>>>>>} into the working file, and leaves the branch
-     * ref unchanged. The user would find their document corrupted after a "successful" merge.
+     * <p>Do NOT replace this with {@code git.merge().include(...)}; see {@link ForkMerger} for the
+     * measured corruption it causes in the working file.
      */
     public String mergeForkOnly(String targetBranch, String sourceBranch)
             throws IOException, GitAPIException {
-        try (Git git = Git.open(repositoryDirectory.toFile())) {
+        try (Git git = openGit()) {
             Repository repository = git.getRepository();
-            ObjectId targetId = repository.resolve("refs/heads/" + targetBranch);
-            ObjectId sourceId = repository.resolve("refs/heads/" + sourceBranch);
-            if (targetId == null || sourceId == null) {
-                throw new IOException("Unknown branch: "
-                        + (targetId == null ? targetBranch : sourceBranch));
+            ObjectId mergeCommitId =
+                    ForkMerger.merge(repository, targetBranch, sourceBranch, identity());
+            if (targetBranch.equals(repository.getBranch())) {
+                git.reset()
+                        .setMode(org.eclipse.jgit.api.ResetCommand.ResetType.HARD)
+                        .setRef("refs/heads/" + targetBranch)
+                        .call();
             }
-            try (RevWalk walk = new RevWalk(repository);
-                 ObjectInserter inserter = repository.newObjectInserter()) {
-                RevCommit targetCommit = walk.parseCommit(targetId);
-                RevCommit sourceCommit = walk.parseCommit(sourceId);
-
-                CommitBuilder builder = new CommitBuilder();
-                builder.setTreeId(sourceCommit.getTree().getId());
-                builder.setParentIds(targetCommit, sourceCommit);
-                builder.setAuthor(identity());
-                builder.setCommitter(identity());
-                builder.setMessage("Merge " + sourceBranch + " into " + targetBranch);
-                ObjectId mergeCommitId = inserter.insert(builder);
-                inserter.flush();
-
-                RefUpdate refUpdate = repository.updateRef("refs/heads/" + targetBranch);
-                refUpdate.setNewObjectId(mergeCommitId);
-                refUpdate.setForceUpdate(true);
-                refUpdate.update();
-
-                if (targetBranch.equals(repository.getBranch())) {
-                    git.reset()
-                            .setMode(org.eclipse.jgit.api.ResetCommand.ResetType.HARD)
-                            .setRef("refs/heads/" + targetBranch)
-                            .call();
-                }
-                return mergeCommitId.getName();
-            }
+            return mergeCommitId.getName();
         }
     }
 
     public List<String> parentIdsOf(String commitId) throws IOException {
-        try (Git git = Git.open(repositoryDirectory.toFile());
+        try (Git git = openGit();
              RevWalk walk = new RevWalk(git.getRepository())) {
             RevCommit commit = walk.parseCommit(ObjectId.fromString(commitId));
             List<String> parentIds = new ArrayList<>();
@@ -243,11 +258,26 @@ public final class VersionRepository {
     }
 
     public String treeIdOf(String commitId) throws IOException {
-        try (Git git = Git.open(repositoryDirectory.toFile());
+        try (Git git = openGit();
              RevWalk walk = new RevWalk(git.getRepository())) {
             RevCommit commit = walk.parseCommit(ObjectId.fromString(commitId));
             return commit.getTree().getId().getName();
         }
+    }
+
+    /**
+     * Opens the repository with line-ending conversion pinned off.
+     *
+     * <p>JGit honours {@code core.autocrlf} from the system or global git config, and GitHub's
+     * Windows runners set it to {@code true}. A hard reset then rewrites the working file with
+     * CRLF, so the same document has different bytes on Windows than on Linux — and the user's
+     * Markdown silently changes line endings after every checkout or merge. A document manager
+     * must not rewrite the user's line endings, so the setting is forced off for every operation.
+     */
+    private Git openGit() throws IOException {
+        Git git = Git.open(repositoryDirectory.toFile());
+        git.getRepository().getConfig().setBoolean("core", null, "autocrlf", false);
+        return git;
     }
 
     private PersonIdent identity() {

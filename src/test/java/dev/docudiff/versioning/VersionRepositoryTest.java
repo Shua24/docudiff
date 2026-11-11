@@ -206,6 +206,33 @@ class VersionRepositoryTest {
     }
 
     @Test
+    @DisplayName("a repository configured for CRLF conversion still keeps the working file LF")
+    void lineEndingsAreNotRewritten() throws Exception {
+        // GitHub's Windows runners set core.autocrlf=true in the system git config, and JGit
+        // honours it: a hard reset then rewrites the working file with CRLF, so the same document
+        // has different bytes on Windows than on Linux. The repository must pin the setting off.
+        git.getRepository().getConfig().setBoolean("core", null, "autocrlf", true);
+        git.getRepository().getConfig().save();
+
+        Files.writeString(workingFile, "line one\nline two\n");
+        repository.snapshot("report", "report-snapshot-2026-11-11");
+        repository.createBranch("experiment");
+
+        Files.writeString(workingFile, "line one CHANGED ON MAIN\nline two\n");
+        repository.snapshot("report", "report-snapshot-2026-11-11-2");
+
+        repository.checkoutBranch("experiment");
+        Files.writeString(workingFile, "line one CHANGED ON EXPERIMENT\nline two\n");
+        repository.snapshot("report", "report-snapshot-2026-11-11-3");
+        repository.checkoutBranch("main");
+
+        repository.mergeForkOnly("main", "experiment");
+
+        String workingContent = Files.readString(workingFile);
+        assertEquals("line one CHANGED ON EXPERIMENT\nline two\n", workingContent);
+    }
+
+    @Test
     @DisplayName("switching branches is refused while the working file is modified")
     void branchSwitchRefusedWhileModified() throws Exception {
         Files.writeString(workingFile, "version one");

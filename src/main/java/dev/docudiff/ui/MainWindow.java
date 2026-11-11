@@ -56,7 +56,7 @@ public final class MainWindow extends StackPane implements BackgroundRunner {
     public MainWindow(Stage stage) {
         this.libraryRoot = LibraryRoot.defaultRoot();
         this.actions = new DocumentActions(
-                stage, libraryRoot, this, this::refreshLibrary, this::setStatus, this::showError);
+                stage, libraryRoot, this, this::refreshAll, this::setStatus, this::showError);
         this.libraryPane = new LibraryPane(libraryRoot, this::openDocument);
         this.versionListPane = new VersionListPane((version, unusedFlag) -> {
             DocumentFolder documentFolder = actions.currentDocument();
@@ -64,7 +64,7 @@ public final class MainWindow extends StackPane implements BackgroundRunner {
             if (documentFolder != null && repository != null) {
                 renderDocumentView(documentFolder, repository, version);
             }
-        });
+        }, actions::restoreSnapshot);
         this.diffTab = new DiffTab(this, this::setStatus);
 
         content.setLeft(libraryPane);
@@ -105,6 +105,27 @@ public final class MainWindow extends StackPane implements BackgroundRunner {
         Button mergeButton = new Button("Merge branch…");
         mergeButton.setOnAction(event -> actions.mergeBranch());
 
+        javafx.scene.control.MenuItem deleteBranchItem =
+                new javafx.scene.control.MenuItem("Delete branch…");
+        deleteBranchItem.setOnAction(event -> actions.deleteBranch());
+        javafx.scene.control.MenuItem discardItem =
+                new javafx.scene.control.MenuItem("Discard working changes…");
+        discardItem.setOnAction(event -> actions.discardWorkingChanges());
+        javafx.scene.control.MenuItem deleteSnapshotItem =
+                new javafx.scene.control.MenuItem("Delete selected version…");
+        deleteSnapshotItem.setOnAction(event -> actions.deleteSnapshot(versionListPane.selected()));
+        javafx.scene.control.MenuItem settingsItem =
+                new javafx.scene.control.MenuItem("Settings…");
+        settingsItem.setOnAction(event -> actions.openSettings());
+
+        javafx.scene.control.MenuButton moreButton = new javafx.scene.control.MenuButton("More");
+        moreButton.getItems().addAll(
+                deleteSnapshotItem, discardItem,
+                new javafx.scene.control.SeparatorMenuItem(),
+                deleteBranchItem, settingsItem);
+        moreButton.setTooltip(new javafx.scene.control.Tooltip(
+                "Delete a version or a branch, discard changes, settings"));
+
         Button helpButton = new Button("How to read the diff");
         helpButton.getStyleClass().add("help-button");
         helpButton.setOnAction(event -> DiffLegend.showHelpDialog(windowOrNull()));
@@ -114,7 +135,7 @@ public final class MainWindow extends StackPane implements BackgroundRunner {
 
         HBox buttons = new HBox(8,
                 importButton, snapshotButton, openButton,
-                branchButton, switchButton, mergeButton, spacer, helpButton);
+                branchButton, switchButton, mergeButton, moreButton, spacer, helpButton);
         buttons.setPadding(new Insets(8, 0, 0, 0));
 
         return new VBox(4, statusLabel, buttons);
@@ -130,6 +151,9 @@ public final class MainWindow extends StackPane implements BackgroundRunner {
         });
         task.setOnFailed(event -> {
             busyOverlay.hide();
+            // Print the trace as well as showing the dialog: a dialog says "something went wrong"
+            // and nothing else, which makes a UI-only failure impossible to diagnose from a log.
+            task.getException().printStackTrace();
             showError("Something went wrong: " + task.getException().getMessage());
         });
         Thread worker = new Thread(task, "docudiff-worker");
@@ -140,6 +164,22 @@ public final class MainWindow extends StackPane implements BackgroundRunner {
     /** Lets a long operation update the overlay as it moves between stages. */
     void updateBusyMessage(String message) {
         busyOverlay.setMessage(message);
+    }
+
+    /**
+     * Refreshes the library and the open document's versions.
+     *
+     * <p>Re-selecting the same document does not always fire a selection change, so the version
+     * list is rebuilt explicitly. Without that, deleting or restoring a version would update the
+     * repository and leave the list on screen showing the old state.
+     */
+    private void refreshAll() {
+        refreshLibrary();
+        DocumentFolder current = actions.currentDocument();
+        VersionRepository repository = actions.currentRepository();
+        if (current != null && repository != null) {
+            refreshVersions(current, repository);
+        }
     }
 
     private void refreshLibrary() {
@@ -157,11 +197,22 @@ public final class MainWindow extends StackPane implements BackgroundRunner {
     }
 
     private void refreshVersions(DocumentFolder documentFolder, VersionRepository repository) {
-        run("Reading version history…", repository::listVersions, versions -> {
-            versionListPane.setVersions(versions);
-            diffTab.setDocument(documentFolder, repository, versions);
-            showCurrentVersion(documentFolder, repository, versions);
-        });
+        run("Reading version history…", () -> new VersionListing(
+                        repository.listVersions(), repository.branchHeadCommitIds()),
+                listing -> {
+                    versionListPane.setVersions(listing.versions(), listing.branchHeads());
+                    // Deleted versions stay out of the comparison pickers: they are on their way
+                    // out, and offering them as a diff side would be a trap.
+                    List<VersionEntry> visible = listing.versions().stream()
+                            .filter(version -> !version.deleted())
+                            .toList();
+                    diffTab.setDocument(documentFolder, repository, visible);
+                    showCurrentVersion(documentFolder, repository, listing.versions());
+                });
+    }
+
+    /** Every version plus the ids the branches point at, read in one background pass. */
+    private record VersionListing(List<VersionEntry> versions, java.util.Set<String> branchHeads) {
     }
 
     private void showCurrentVersion(
