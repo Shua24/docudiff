@@ -80,8 +80,8 @@ class DocumentComparerTest {
     }
 
     @Test
-    @DisplayName("a spreadsheet comparison carries row diffs and the sheet name, not block diffs")
-    void spreadsheetComparisonCarriesRows() throws Exception {
+    @DisplayName("a spreadsheet comparison carries per-sheet diffs, not block diffs")
+    void spreadsheetComparisonCarriesSheets() throws Exception {
         DocumentComparer comparer = new DocumentComparer();
         DocumentSource left = DocumentSource.ofBytes("a.xlsx",
                 SpreadsheetFixture.workbook(List.of("alpha", "beta")), DocumentFormat.XLSX);
@@ -92,8 +92,8 @@ class DocumentComparerTest {
 
         assertEquals(null, comparison.documentDiff(),
                 "a spreadsheet must not produce a block diff");
-        assertTrue(comparison.rowDiffs() != null, "a spreadsheet must produce row diffs");
+        assertTrue(comparison.sheetDiffs() != null, "a spreadsheet must produce sheet diffs");
         assertEquals(1, comparison.changedCount());
-        assertEquals("Sheet1", comparison.sheetName());
+        assertEquals("Sheet1", comparison.sheetDiffs().get(0).name());
     }
 }

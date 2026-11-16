@@ -140,4 +140,30 @@ class XlsxExtractorTest {
             return buffer.toByteArray();
         }
     }
+
+    @Test
+    @DisplayName("a cell formatted to two decimals renders as 2.50, not 2.5")
+    void numberFormatIsPreserved() throws Exception {
+        byte[] xlsxBytes = workbookWithFormattedNumber();
+
+        SheetModel sheet = new XlsxExtractor().extract(xlsxBytes).sheets().get(0);
+
+        assertEquals("2.50", sheet.rows().get(0).cells().get(0).displayedValue(),
+                "DataFormatter must honour the cell's number format, or money columns read as "
+                        + "spurious changes");
+    }
+
+    private byte[] workbookWithFormattedNumber() throws Exception {
+        try (XSSFWorkbook workbook = new XSSFWorkbook();
+             ByteArrayOutputStream buffer = new ByteArrayOutputStream()) {
+            XSSFSheet sheet = workbook.createSheet("Sheet1");
+            XSSFCell cell = sheet.createRow(0).createCell(0);
+            cell.setCellValue(2.5);
+            XSSFCellStyle style = workbook.createCellStyle();
+            style.setDataFormat(workbook.createDataFormat().getFormat("0.00"));
+            cell.setCellStyle(style);
+            workbook.write(buffer);
+            return buffer.toByteArray();
+        }
+    }
 }

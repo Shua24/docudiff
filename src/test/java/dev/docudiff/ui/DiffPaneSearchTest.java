@@ -117,6 +117,67 @@ class DiffPaneSearchTest {
         });
     }
 
+    @Test
+    @DisplayName("searching reaches a sheet deep in a multi-sheet workbook, and says so")
+    void searchReachesUnchangedSheet() throws Exception {
+        // Five sheets with the keyword on the fourth and the only change on the fifth. Two sheets
+        // would not prove the search walks the whole workbook rather than the first one or two.
+        Comparison comparison = new DocumentComparer().compare(
+                DocumentSource.ofBytes("before.xlsx",
+                        fiveSheetWorkbook("kept text", "before"), DocumentFormat.XLSX),
+                DocumentSource.ofBytes("after.xlsx",
+                        fiveSheetWorkbook("kept text", "after"), DocumentFormat.XLSX));
+
+        runOnFxThread(() -> {
+            DiffPane diffPane = new DiffPane();
+            diffPane.showComparison(comparison);
+
+            // Sheets 1-4 are untouched. With no query they are not rendered, so nothing to find.
+            assertEquals(0, diffPane.applySearch("", -1));
+
+            int matchCount = diffPane.applySearch("kept", 0);
+            assertEquals(1, matchCount,
+                    "a search must reach sheet four of five, which has no changes of its own");
+            assertTrue(diffPane.contextNoteFor(0).contains("not changed"),
+                    "the hit is in unchanged content and must be labelled, got: "
+                            + diffPane.contextNoteFor(0));
+        });
+    }
+
+    @Test
+    @DisplayName("a change on the last of five sheets is in the rendered diff")
+    void lastSheetChangeIsRendered() throws Exception {
+        Comparison comparison = new DocumentComparer().compare(
+                DocumentSource.ofBytes("before.xlsx",
+                        fiveSheetWorkbook("kept text", "before"), DocumentFormat.XLSX),
+                DocumentSource.ofBytes("after.xlsx",
+                        fiveSheetWorkbook("kept text", "after"), DocumentFormat.XLSX));
+
+        runOnFxThread(() -> {
+            DiffPane diffPane = new DiffPane();
+            diffPane.showComparison(comparison);
+
+            int matchCount = diffPane.applySearch("after", 0);
+            assertEquals(1, matchCount,
+                    "the fifth sheet's changed value must be in the diff, not dropped");
+        });
+    }
+
+    /** Five sheets: the keyword in sheet four, the only change in sheet five. */
+    private byte[] fiveSheetWorkbook(String fourthSheetValue, String fifthSheetValue)
+            throws Exception {
+        List<String> contents = List.of("one", "two", "three", fourthSheetValue, fifthSheetValue);
+        try (XSSFWorkbook workbook = new XSSFWorkbook();
+             ByteArrayOutputStream buffer = new ByteArrayOutputStream()) {
+            for (int index = 0; index < contents.size(); index++) {
+                XSSFSheet sheet = workbook.createSheet("S" + (index + 1));
+                sheet.createRow(0).createCell(0).setCellValue(contents.get(index));
+            }
+            workbook.write(buffer);
+            return buffer.toByteArray();
+        }
+    }
+
     private Comparison compareMarkdown(String before, String after) {
         return new DocumentComparer().compare(
                 DocumentSource.ofBytes("before", before, DocumentFormat.MARKDOWN),

@@ -438,3 +438,21 @@
 .sheet-value-flow {
     -fx-padding: 0;
 }
+
+/* The "not compared" notice above a diff. Warning-toned but quiet: it is information the reader
+   needs, not an error. */
+.diff-notice {
+    -fx-background-color: #fdf6e6;
+    -fx-border-color: #e8d9b0;
+    -fx-border-width: 1;
+    -fx-padding: 6 10 6 10;
+    -fx-text-fill: #6b4f00;
+    -fx-font-size: 12px;
+}
+
+/* The header line naming both sides of the comparison — the line that makes "Before: X · After:
+   Y" legible above the pickers. */
+.comparison-sides {
+    -fx-text-fill: #33475b;
+    -fx-font-weight: bold;
+}

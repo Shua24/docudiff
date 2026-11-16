@@ -1,0 +1,251 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # A hung step otherwise sits until the six-hour job limit. The apt step below needs ~12
+    # minutes on a good run because of runner-side DNS retries, so the job gets 40.
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        # Pin the LTS rather than ubuntu-latest: a predictable image is worth more than the
+        # newest one for a job that installs a 400 MB office suite.
+        os: [ubuntu-24.04, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      # The renderer tests shell out to LibreOffice. Without it they skip via assumeTrue, which
+      # would leave CI green while the page-view path is never exercised — so install it and let
+      # a failure fail the job.
+      - name: Install LibreOffice (Linux)
+        if: runner.os == 'Linux'
+        timeout-minutes: 20
+        run: |
+          # Measured on this runner: apt prints "Temporary failure resolving
+          # 'azure.archive.ubuntu.com'" and retries for ~6 minutes before the index finally
+          # downloads, while packages.microsoft.com resolves fine in the same run. That is
+          # runner-side DNS, not a lock and not the release. The update alone eats six minutes,
+          # so the step needs headroom for the install that follows; the timeout still bounds a
+          # genuine hang instead of letting it sit until the job limit.
+          sudo systemctl stop unattended-upgrades || true
+          sudo apt-get -o DPkg::Lock::Timeout=60 -o Acquire::Retries=3 update
+          sudo apt-get -o DPkg::Lock::Timeout=60 install -y --no-install-recommends \
+            libreoffice-writer libreoffice-calc xvfb
+
+      - name: Install LibreOffice (Windows)
+        if: runner.os == 'Windows'
+        timeout-minutes: 15
+        run: choco install libreoffice-fresh -y --no-progress
+
+      # JavaFX needs a display to start its toolkit. The UI tests build real controls, so on Linux
+      # they run under Xvfb; without it they fail with "Unable to open DISPLAY".
+      - name: Test (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a mvn -B test
+
+      - name: Test (Windows)
+        if: runner.os == 'Windows'
+        run: mvn -B test
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-${{ matrix.os }}
+          path: target/surefire-reports/
+          if-no-files-found: ignore
+
+  package:
+    name: Package (${{ matrix.os }})
+    needs: test
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: docudiff-linux
+          - os: windows-latest
+            artifact: docudiff-windows
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Build the jar and collect runtime dependencies
+        run: |
+          mvn -B -DskipTests package
+          mvn -B dependency:copy-dependencies -DoutputDirectory=target/app -DincludeScope=runtime
+
+      - name: Stage the application jar
+        shell: bash
+        run: cp target/docudiff-*.jar target/app/
+
+      - name: Build the app image (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          jpackage \
+            --type app-image \
+            --name Docudiff \
+            --input target/app \
+            --main-jar "$(basename target/docudiff-*.jar)" \
+            --main-class dev.docudiff.Launcher \
+            --dest target/dist
+
+      - name: Build the app image (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          jpackage \
+            --type app-image \
+            --name Docudiff \
+            --input target/app \
+            --main-jar "$(basename target/docudiff-*.jar)" \
+            --main-class dev.docudiff.Launcher \
+            --dest target/dist
+
+      # jpackage creates the output directory even when it fails, so "the directory is not empty"
+      # proves nothing — a failed run here left target/dist/Docudiff with zero files in it. Check
+      # for the launcher binary itself. Some JDKs also exit 0 on a bundler error, so the exit
+      # status alone is not trustworthy either.
+      - name: Verify the package was actually produced
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            LAUNCHER="target/dist/Docudiff/Docudiff.exe"
+          else
+            LAUNCHER="target/dist/Docudiff/bin/Docudiff"
+          fi
+          if [ ! -f "$LAUNCHER" ]; then
+            echo "::error::No launcher at $LAUNCHER — jpackage did not produce a usable app image."
+            echo "Contents of target/dist:"
+            find target/dist -maxdepth 3 2>/dev/null || true
+            exit 1
+          fi
+          echo "Launcher present: $LAUNCHER"
+          ls -la target/dist/Docudiff
+
+      - name: Upload the app image
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: target/dist/
+          if-no-files-found: error
+
+  msi:
+    name: Windows MSI installer
+    needs: test
+    # A release artifact, not a per-commit one: a tag or a manual run. Building an MSI on every
+    # push would spend a Windows runner and a WiX invocation for something nobody downloads.
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      # jpackage shells out to WiX 3's candle.exe/light.exe to build an MSI. The windows-latest
+      # image ships WiX 3.14, so nothing is installed here — but a future image could drop it, and
+      # a missing toolchain must fail loudly rather than produce an empty dist directory.
+      - name: Check the WiX toolset
+        shell: pwsh
+        run: |
+          $candle = Get-Command candle.exe -ErrorAction SilentlyContinue
+          if (-not $candle) {
+            Write-Host "::error::candle.exe not found. jpackage --type msi needs WiX 3, which this runner image is expected to ship."
+            exit 1
+          }
+          Write-Host "WiX at $($candle.Source) (jpackage uses the WiX 3 CLI)"
+          Get-ChildItem "C:\Program Files (x86)\WiX Toolset*" -ErrorAction SilentlyContinue | Select-Object Name
+
+      - name: Build the jar and collect runtime dependencies
+        shell: pwsh
+        run: |
+          [xml]$pom = Get-Content pom.xml
+          $version = $pom.project.version
+          Write-Host "Version: $version"
+          mvn -B -DskipTests package
+          mvn -B dependency:copy-dependencies "-DoutputDirectory=target/app" "-DincludeScope=runtime"
+          Copy-Item "target/docudiff-$version.jar" target/app/
+          if (-not (Test-Path "target/app/docudiff-$version.jar")) { exit 1 }
+
+      - name: Build the MSI
+        shell: pwsh
+        run: |
+          [xml]$pom = Get-Content pom.xml
+          $version = $pom.project.version
+          jpackage `
+            --type msi `
+            --name Docudiff `
+            --app-version $version `
+            --input target/app `
+            --main-jar "docudiff-$version.jar" `
+            --main-class dev.docudiff.Launcher `
+            --dest target/dist `
+            --win-menu `
+            --win-shortcut `
+            --win-dir-chooser `
+            --vendor "Docudiff"
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::jpackage exited $LASTEXITCODE"; exit 1 }
+
+      # Neither the exit status nor the output directory is a reliable signal on its own: jpackage
+      # creates the directory even when the bundler fails, and has been measured exiting 0 on a
+      # failed image. Gate on the file and on a size nothing empty could reach.
+      - name: Verify the MSI
+        shell: pwsh
+        run: |
+          [xml]$pom = Get-Content pom.xml
+          $version = $pom.project.version
+          $msi = "target/dist/Docudiff-$version.msi"
+          if (-not (Test-Path $msi)) {
+            Write-Host "::error::No MSI at $msi"
+            Get-ChildItem target/dist -Recurse -ErrorAction SilentlyContinue | Select-Object FullName, Length
+            exit 1
+          }
+          $size = (Get-Item $msi).Length
+          Write-Host "MSI produced: $msi ($([math]::Round($size / 1MB, 1)) MB)"
+          if ($size -lt 5MB) {
+            Write-Host "::error::The MSI is only $size bytes — an installer bundling a runtime is tens of megabytes, so this is a failed build."
+            exit 1
+          }
+
+      - name: Upload the MSI
+        uses: actions/upload-artifact@v4
+        with:
+          name: docudiff-windows-msi
+          path: target/dist/*.msi
+          if-no-files-found: error

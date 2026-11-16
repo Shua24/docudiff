@@ -5,10 +5,12 @@ import dev.docudiff.diff.BlockDiff;
 import dev.docudiff.diff.DiffStatus;
 import dev.docudiff.diff.DocumentDiff;
 import dev.docudiff.diff.RowDiff;
+import dev.docudiff.diff.SheetDiff;
 import dev.docudiff.diff.WordMark;
 import dev.docudiff.diff.WordMarkKind;
 import dev.docudiff.search.SearchHighlighter;
 import javafx.scene.Node;
+import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.TextFlow;
@@ -105,11 +107,30 @@ public final class DiffPane extends ScrollPane {
         if (comparison == null) {
             return;
         }
-        List<Node> nodes = comparison.isSpreadsheet()
-                ? renderSheet(comparison.rowDiffs(), comparison.sheetName())
-                : renderDocument(comparison.documentDiff());
+        List<Node> nodes = new ArrayList<>(noticeNodes());
+        nodes.addAll(comparison.isSpreadsheet()
+                ? renderSheets(comparison.sheetDiffs())
+                : renderDocument(comparison.documentDiff()));
         blocks.getChildren().setAll(nodes);
         matchCountConsumer.accept(matchSpots.size());
+    }
+
+    /**
+     * The "not compared" banner: one label per unsupported construct group.
+     *
+     * <p>It sits above the diff, inside the same scroll pane, so it cannot be missed by a reader
+     * who scrolled to the first change — and because the comparison carries it, it appears no
+     * matter which pane renders the result (including the exported review report).
+     */
+    private List<Node> noticeNodes() {
+        List<Node> notices = new ArrayList<>();
+        for (String notice : comparison.notices()) {
+            Label label = new Label(notice);
+            label.setWrapText(true);
+            label.getStyleClass().add("diff-notice");
+            notices.add(label);
+        }
+        return notices;
     }
 
     private List<Node> renderDocument(DocumentDiff documentDiff) {
@@ -174,11 +195,28 @@ public final class DiffPane extends ScrollPane {
         }
     }
 
-    private List<Node> renderSheet(List<RowDiff> rowDiffs, String sheetName) {
-        // While a search is active every row is rendered, so a keyword in an untouched row can be
-        // found and reported as unchanged. With no query, only changed rows are shown.
-        return List.of(SheetDiffView.render(rowDiffs, sheetName, query, currentMatch,
-                !query.isEmpty(), matchSpots));
+    /**
+     * Renders every sheet that differs, in workbook order.
+     *
+     * <p>While a search is active every sheet is rendered, including unchanged ones, so a keyword
+     * in an untouched row can be found and reported as unchanged. With no query, only sheets that
+     * actually differ are shown — a workbook with ten tabs and one change should not make the
+     * reader scroll past nine identical grids.
+     */
+    private List<Node> renderSheets(List<SheetDiff> sheetDiffs) {
+        List<Node> nodes = new ArrayList<>();
+        boolean searching = !query.isEmpty();
+        for (SheetDiff sheetDiff : sheetDiffs) {
+            if (!sheetDiff.isChanged() && !searching) {
+                continue;
+            }
+            nodes.add(SheetDiffView.render(
+                    sheetDiff, query, currentMatch, searching, matchSpots));
+        }
+        if (nodes.isEmpty()) {
+            nodes.add(UiParts.muted("The two workbooks are identical."));
+        }
+        return nodes;
     }
 
     static String styleFor(WordMarkKind kind) {

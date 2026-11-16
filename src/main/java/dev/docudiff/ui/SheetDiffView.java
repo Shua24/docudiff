@@ -2,6 +2,7 @@ package dev.docudiff.ui;
 
 import dev.docudiff.diff.DiffStatus;
 import dev.docudiff.diff.RowDiff;
+import dev.docudiff.diff.SheetDiff;
 import dev.docudiff.document.SheetCell;
 import dev.docudiff.document.SheetRow;
 import javafx.geometry.Insets;
@@ -38,8 +39,8 @@ public final class SheetDiffView {
     }
 
     /** The whole sheet diff with no search applied. */
-    public static Region render(List<RowDiff> rowDiffs, String sheetName) {
-        return render(rowDiffs, sheetName, "", -1, false, null);
+    public static Region render(SheetDiff sheetDiff) {
+        return render(sheetDiff, "", -1, false, null);
     }
 
     /**
@@ -51,22 +52,20 @@ public final class SheetDiffView {
      * @param matchSpots     collects one entry per match found, or null to skip recording
      */
     public static Region render(
-            List<RowDiff> rowDiffs,
-            String sheetName,
+            SheetDiff sheetDiff,
             String query,
             int currentMatch,
             boolean showUnchanged,
             List<MatchSpot> matchSpots) {
+        List<RowDiff> rowDiffs = sheetDiff.rowDiffs();
         VBox root = new VBox(0);
         root.getStyleClass().add("sheet-diff");
 
         int columnCount = highestColumn(rowDiffs);
-        int changedRows = (int) rowDiffs.stream()
-                .filter(rowDiff -> rowDiff.status() != DiffStatus.UNCHANGED)
-                .count();
+        int changedRows = (int) rowDiffs.stream().filter(RowDiff::isChanged).count();
 
-        root.getChildren().add(summaryBar(sheetName, rowDiffs.size(), changedRows,
-                showUnchanged));
+        root.getChildren().add(summaryBar(
+                sheetDiff.name(), rowDiffs.size(), changedRows, showUnchanged, sheetDiff.status()));
         if (changedRows == 0 && !showUnchanged) {
             Label identical = UiParts.muted("The two sheets are identical.");
             identical.setPadding(new Insets(16, 12, 16, 12));
@@ -77,7 +76,7 @@ public final class SheetDiffView {
         root.getChildren().add(columnRuler(columnCount));
         for (int rowIndex = 0; rowIndex < rowDiffs.size(); rowIndex++) {
             RowDiff rowDiff = rowDiffs.get(rowIndex);
-            if (rowDiff.status() == DiffStatus.UNCHANGED && !showUnchanged) {
+            if (!rowDiff.isChanged() && !showUnchanged) {
                 continue;
             }
             root.getChildren().add(SheetRowView.render(
@@ -88,7 +87,11 @@ public final class SheetDiffView {
     }
 
     private static Region summaryBar(
-            String sheetName, int totalRows, int changedRows, boolean showUnchanged) {
+            String sheetName,
+            int totalRows,
+            int changedRows,
+            boolean showUnchanged,
+            DiffStatus sheetStatus) {
         Label sheetLabel = new Label(sheetName == null || sheetName.isBlank()
                 ? "Sheet" : sheetName);
         sheetLabel.getStyleClass().add("sheet-diff-title");
@@ -96,11 +99,7 @@ public final class SheetDiffView {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        // The count has to say which mode it is counting in, or it silently lies while searching.
-        String countText = showUnchanged
-                ? "showing all " + totalRows + " row(s) · search active"
-                : changedRows + " changed row(s) of " + totalRows;
-        Label counts = new Label(countText);
+        Label counts = new Label(countText(totalRows, changedRows, showUnchanged, sheetStatus));
         counts.getStyleClass().add("legend-note");
 
         HBox bar = new HBox(10, sheetLabel, spacer, counts);
@@ -108,6 +107,24 @@ public final class SheetDiffView {
         bar.setPadding(new Insets(6, 10, 6, 10));
         bar.getStyleClass().add("sheet-diff-summary");
         return bar;
+    }
+
+    /** The count has to say which mode it is counting in, or it silently lies while searching. */
+    private static String countText(
+            int totalRows, int changedRows, boolean showUnchanged, DiffStatus sheetStatus) {
+        if (showUnchanged) {
+            return "showing all " + totalRows + " row(s) · search active";
+        }
+        if (sheetStatus == DiffStatus.ADDED) {
+            return "whole sheet added · " + totalRows + " row(s)";
+        }
+        if (sheetStatus == DiffStatus.REMOVED) {
+            return "whole sheet removed · " + totalRows + " row(s)";
+        }
+        if (changedRows == 0) {
+            return "no changes · " + totalRows + " row(s)";
+        }
+        return changedRows + " changed row(s) of " + totalRows;
     }
 
     private static Region columnRuler(int columnCount) {
